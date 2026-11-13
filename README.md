@@ -3,3 +3,4 @@
 ## 这是一个由ai制作的赛车游戏  
 ## Hope you can have a fun!  
 ## 希望你能玩得开心!  
+[start!](jeiiymother.github.io/racing-game/game)
