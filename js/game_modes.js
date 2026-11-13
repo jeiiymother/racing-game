@@ -604,7 +604,7 @@ function beginEvent(type,fromWeekendQualifying=false,restarting=false){
   eventPlayerDamage=0;eventActive=true;eventFinished=false;boardRefreshAt=0;
   DAMAGE_ENABLED=document.getElementById('damageEnabled').checked;
   document.getElementById('damageLabel').textContent=DAMAGE_ENABLED?'开启':'关闭';
-  if(!fromWeekendQualifying)assignAISkills();
+  if(!fromWeekendQualifying)assignAISkills(aiDrivers);
   document.getElementById('eventResults').style.display='none';
   setLevel(document.getElementById('eventWeather').value==='wet');
   resetCar();mode='race';

@@ -3,5 +3,5 @@
 ## 这是一个由ai制作的赛车游戏  
 ## Hope you can have a fun!  
 ## 希望你能玩得开心!  
-[start!](/game.html)
-[test ver.](/game_modes.html)
+[start!](./game.html)
+[test ver.](./game_modes.html)
