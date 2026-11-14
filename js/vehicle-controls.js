@@ -13,6 +13,15 @@
     return Math.max(-config.maximumAngle, Math.min(config.maximumAngle, steeringWheelAngle));
   }
 
+  function tapSteering(steeringWheelAngle, direction, config) {
+    const threshold = config.tapThresholdDegrees * Math.PI / 180;
+    const increment = Math.abs(steeringWheelAngle) > threshold
+      ? config.repeatTapDegrees
+      : config.initialTapDegrees;
+    const nextAngle = steeringWheelAngle + Math.sign(direction) * increment * Math.PI / 180;
+    return Math.max(-config.maximumAngle, Math.min(config.maximumAngle, nextAngle));
+  }
+
   window.GameModules = window.GameModules || {};
-  window.GameModules.vehicleControls = { stepSteering };
+  window.GameModules.vehicleControls = { stepSteering, tapSteering };
 })();

@@ -9,11 +9,14 @@ vm.runInContext(
   fs.readFileSync(path.join(__dirname, '../js/vehicle-controls.js'), 'utf8'),
   context
 );
-const { stepSteering } = context.window.GameModules.vehicleControls;
+const { stepSteering, tapSteering } = context.window.GameModules.vehicleControls;
 const config = {
   maximumAngle: 2 * Math.PI,
   turnRateDegrees: 120,
-  returnRateDegrees: 90
+  returnRateDegrees: 90,
+  initialTapDegrees: 5,
+  repeatTapDegrees: 20,
+  tapThresholdDegrees: 2
 };
 
 test('steering rate and self-centering speed are independently bounded', () => {
@@ -30,4 +33,11 @@ test('steering clamps to the configured steering lock', () => {
     stepSteering(0, { a: true }, 5, { ...config, maximumAngle: 1 }),
     1
   );
+});
+
+test('a first steering tap adds 5 degrees and the next adds 20 degrees', () => {
+  const firstTap = tapSteering(0, 1, config);
+  const secondTap = tapSteering(firstTap, 1, config);
+  assert.ok(Math.abs(firstTap - 5 * Math.PI / 180) < 1e-12);
+  assert.ok(Math.abs(secondTap - 25 * Math.PI / 180) < 1e-12);
 });

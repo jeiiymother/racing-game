@@ -9,12 +9,14 @@
     state.shiftElapsed = 0;
     state.shiftDuration = duration;
     state.shiftT = duration;
+    state.shiftCooldown = duration + (config.shiftLockoutDuration || 0);
     state.gear = nextGear;
     state._shiftTorqueFactor = 0;
   }
 
   function requestGear(state, nextGear, config) {
-    if (nextGear < 0 || nextGear > config.gearRatios.length || nextGear === state.gear) return false;
+    if (nextGear < 0 || nextGear > config.gearRatios.length
+      || nextGear === state.gear || state.shiftT > 0 || state.shiftCooldown > 0) return false;
     beginShift(state, nextGear, config);
     return true;
   }
@@ -22,6 +24,7 @@
   function update(state, dt, speed, throttle, config) {
     const wheelRpmFactor = 60 / (2 * Math.PI * config.wheelRadius);
     const speedMagnitude = Math.abs(speed);
+    state.shiftCooldown = Math.max(0, (state.shiftCooldown || 0) - dt);
     if (state.shiftT > 0) {
       state.shiftElapsed = Math.min(state.shiftDuration, state.shiftElapsed + dt);
       const progress = state.shiftDuration
@@ -45,6 +48,7 @@
       speedMagnitude * wheelRpmFactor * ratioForGear(state.gear, config)
     );
     if (state.gear === 0) return 1;
+    if (state.shiftCooldown > 0) return 1;
 
     if (state.gear < config.gearRatios.length && state.rpm >= config.shiftUpRpm) {
       beginShift(state, state.gear + 1, config);
@@ -53,7 +57,8 @@
     if (state.gear > 1) {
       const nextGearRpm = speedMagnitude * wheelRpmFactor
         * ratioForGear(state.gear - 1, config);
-      const safeDownshift = nextGearRpm < config.maximumDownshiftRpm;
+      const safeDownshift = nextGearRpm < config.maximumDownshiftRpm
+        && nextGearRpm <= config.downshiftTargetMaxRpm;
       const kickdown = throttle >= config.kickdownThrottle
         && nextGearRpm >= config.kickdownRpm
         && state.rpm < config.shiftUpRpm - 300;

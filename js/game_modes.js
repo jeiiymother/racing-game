@@ -105,13 +105,15 @@ const SUSPENSION_INPUT={
 };
 const suspensionState=suspension.createState();
 const TRANSMISSION_CONFIG={
-  gearRatios:[2.90,2.10,1.63,1.34,1.12,0.91],finalDrive:4.15,reverseRatio:3.10,
-  wheelRadius:0.33,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:4800,
-  maximumDownshiftRpm:8150,kickdownRpm:6200,kickdownThrottle:0.85,
+  gearRatios:[2.94,2.34,1.86,1.47,1.16,0.916],finalDrive:4.15,reverseRatio:3.10,
+  wheelRadius:0.33,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:5200,
+  maximumDownshiftRpm:8150,downshiftTargetMaxRpm:7200,
+  kickdownRpm:6200,kickdownThrottle:0.85,shiftLockoutDuration:0.24,
   shiftDuration:0.14,torqueCutFraction:0.48,torqueRecoveryFraction:0.28
 };
 const STEERING_CONFIG={
-  maximumAngle:360*D2R,turnRateDegrees:120,returnRateDegrees:90
+  maximumAngle:360*D2R,turnRateDegrees:120,returnRateDegrees:90,
+  initialTapDegrees:5,repeatTapDegrees:20,tapThresholdDegrees:2
 };
 const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
 const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
@@ -268,7 +270,7 @@ function resetCar(){
   u._lockF=0;u._lockR=0;u._wheelOmegaF=0;u._wheelOmegaR=0;u._wheelSlipF=0;u._wheelSlipR=0;
   u._impact=0;u._dPrev=0;u._aero=0;
   u.tireWear=100;
-  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftStartRpm=IDLE;u._shiftTorqueFactor=1;
+  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftCooldown=0;u.shiftStartRpm=IDLE;u._shiftTorqueFactor=1;
   Object.assign(suspensionState,suspension.createState());
   u.lapValid=true;u._wallT=0;
   car.rotation.set(0,u.heading,0);chassis.rotation.set(0,0,0);chassis.position.y=0;
@@ -694,8 +696,14 @@ addEventListener('keydown',e=>{
   }
   if(mode==='menu')return;
   if(!e.repeat)logAction('key-down',{key:k});
-  if(k==='a')keys.a=true;
-  if(k==='d')keys.d=true;
+  if(k==='a'&&!keys.a){
+    keys.a=true;
+    if(!keys.d&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,1,STEERING_CONFIG);
+  }
+  if(k==='d'&&!keys.d){
+    keys.d=true;
+    if(!keys.a&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,-1,STEERING_CONFIG);
+  }
   if(k==='w'&&!keys.w){keys.w=true;if(!keys.a&&!keys.d)u.steer=0;}
   if(k==='s'&&!keys.s){keys.s=true;if(Math.abs(u.vf)<0.8&&u.shiftT<=0)vehicleTransmission.requestGear(u,u.gear===0?1:0,TRANSMISSION_CONFIG);}
   if(k==='t'&&!keys.t){keys.t=true;TCS_LVL=(TCS_LVL+1)%6;}
@@ -741,7 +749,7 @@ document.getElementById('tutNext').onclick=()=>{if(tutPage<PAGES.length-1){tutPa
 
 function gearRatio(){return vehicleTransmission.ratioForGear(u.gear,TRANSMISSION_CONFIG);}
 function gearbox(dt){
-  vehicleTransmission.update(u,dt,u._wheelOmegaR*WHEEL_R,ms.thr,TRANSMISSION_CONFIG);
+  vehicleTransmission.update(u,dt,u.vf,ms.thr,TRANSMISSION_CONFIG);
 }
 function driveForce(){
   if(u._shiftTorqueFactor<=0||ms.thr<=0)return 0;

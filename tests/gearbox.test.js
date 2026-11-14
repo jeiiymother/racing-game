@@ -11,16 +11,18 @@ vm.runInContext(
 );
 const transmission = context.window.GameModules.vehicleTransmission;
 const config = {
-  gearRatios: [2.90, 2.10, 1.63, 1.34, 1.12, 0.91],
+  gearRatios: [2.94, 2.34, 1.86, 1.47, 1.16, 0.916],
   finalDrive: 4.15,
   reverseRatio: 3.10,
   wheelRadius: 0.33,
   idleRpm: 1500,
   shiftUpRpm: 8000,
-  shiftDownRpm: 4800,
+  shiftDownRpm: 5200,
   maximumDownshiftRpm: 8150,
+  downshiftTargetMaxRpm: 7200,
   kickdownRpm: 6200,
   kickdownThrottle: 0.85,
+  shiftLockoutDuration: 0.24,
   shiftDuration: 0.14,
   torqueCutFraction: 0.48,
   torqueRecoveryFraction: 0.28
@@ -64,7 +66,7 @@ test('automatic downshift, kickdown, over-rev protection, and reverse are guarde
   transmission.update(state, 1 / 240, state.vf, 0, config);
   assert.equal(state.gear, 2);
 
-  state = makeState(4, 6000);
+  state = makeState(4, 5600);
   transmission.update(state, 1 / 240, state.vf, 0.95, config);
   assert.equal(state.gear, 3);
 
@@ -78,4 +80,35 @@ test('automatic downshift, kickdown, over-rev protection, and reverse are guarde
   assert.equal(transmission.requestGear(state, 1, config), true);
   assert.equal(state.gear, 1);
   assert.equal(transmission.requestGear(state, 7, config), false);
+});
+
+test('kickdown cannot select a gear that immediately demands an upshift', () => {
+  const state = makeState(2, 5800);
+  transmission.update(state, 1 / 240, state.vf, 1, config);
+  assert.equal(state.gear, 2);
+
+  const downshift = makeState(3, 4700);
+  transmission.update(downshift, 1 / 240, downshift.vf, 0, config);
+  assert.equal(downshift.gear, 2);
+  for (let frame = 0; frame < 120; frame++) {
+    transmission.update(downshift, 1 / 240, downshift.vf, 0, config);
+  }
+  assert.equal(downshift.gear, 2);
+});
+
+test('a steady speed increase produces sequential upshifts without gear hunting', () => {
+  const state = makeState(1, config.idleRpm);
+  const shifts = [];
+  let previousGear = state.gear;
+  let speed = 0;
+  for (let frame = 0; frame < 12000; frame++) {
+    const dt = 1 / 120;
+    speed = Math.min(78, speed + 1.5 * dt);
+    transmission.update(state, dt, speed, 1, config);
+    if (state.gear !== previousGear) {
+      shifts.push(state.gear);
+      previousGear = state.gear;
+    }
+  }
+  assert.deepEqual(shifts, [2, 3, 4, 5, 6]);
 });
