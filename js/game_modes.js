@@ -966,7 +966,7 @@ function step(H,now){
       u._wheelStates[index].temperatureC,{
         longitudinalForce:result.longitudinalForce,
         longitudinalSlipSpeed:result.slipRatio*Math.abs(longitudinalSpeed),
-        lateralForce:result.lateralForce,lateralSlipSpeed,
+        lateralForce:result.lateralForce,lateralSlipSpeed:lateralSpeed,
         speed:Math.hypot(longitudinalSpeed,lateralSpeed),
         ambientTemperatureC:tireAmbientTemperature()
       },H
