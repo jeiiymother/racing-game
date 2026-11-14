@@ -1,5 +1,13 @@
 const { loadThree, createOperationLogger } = window.GameModules;
 const { AI_ROSTER, AI_SKILLS, assignAISkills } = window.GameModules.ai;
+const {
+  computeAeroLoads,
+  computeAxleGrip,
+  computeLateralCapacity,
+  computeLateralWheelLoads,
+  computeLoadTransfer,
+  lateralTireForce
+} = window.GameModules.vehiclePhysics;
 
 function initGame(){
 document.getElementById('loading').style.display='none';
@@ -174,12 +182,11 @@ function nearest(pos,hint){
 
 // ===== SIM v6.1 =====
 const D2R=Math.PI/180;
-const MASS=1230, IZ=1400, WB=2.8, LF=1.35, LR=1.45, CGH=0.35;
+const MASS=1230, IZ=MASS*(CAR_LEN*CAR_LEN+CAR_HW*CAR_HW*4)/12, WB=2.8, LF=1.35, LR=1.45, CGH=0.35;
+const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.08, REFERENCE_WHEEL_LOAD=MASS*9.81*0.485/2;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
 const ROLL=0.013, MAXSPD=78;
-const RHO=1.225, CLS=2.6, CDA=0.95, IND=0.05, DF_F=0.42, DF_R=0.58;
-const KL=0.03;
-const LAT_FLOOR=0.22;   // sliding/locked tire keeps 22% lateral grip (real sliding-friction cone)
+const RHO=1.225, CLS=2.6, CDA=0.95, IND=0.05, DF_F=0.42;
 const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
 const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
 const SMAX=360*D2R,MWA=30*D2R,SR=12,SHOLD=25*D2R,SRET=20*D2R,B0=5*D2R,B1=20*D2R;
@@ -233,15 +240,6 @@ function pN(rpm){
   return Math.max(0.8,1.0-0.2*(rpm-8300)/300);
 }
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-function tireFy(al,cap,C){
-  const a=Math.abs(al);
-  const a1=0.85*cap/C, a2=1.45*cap/C;
-  let F;
-  if(a<=a1)F=C*a;
-  else if(a<=a2)F=0.85*cap+0.25*C*(a-a1);
-  else F=cap*(1-0.08*Math.min(1,(a-a2)/Math.max(a2,1e-6)));
-  return (al<0?1:-1)*Math.min(F,cap);
-}
 function muOf(s){
   const base=WET?MU_WET[s]:MU_DRY[s];
   return base*(0.72+0.28*clamp((u.tireWear??100)/100,0,1));
@@ -279,14 +277,15 @@ function makeAICar(driver){
   for(const x of [-driver.width*0.49,driver.width*0.49])for(const z of [-driver.length*0.32,driver.length*0.32]){
     const wheel=new THREE.Mesh(wheelGeo,wheelMat);wheel.rotation.z=Math.PI/2;wheel.position.set(x,0.34,z);group.add(wheel);
   }
-  group.visible=false;
+  group.name=driver.id;group.visible=false;
   scene.add(group);
   return group;
 }
 const aiDrivers=AI_ROSTER.map((driver,index)=>({
   ...driver,index,mesh:makeAICar(driver),progress:0,speed:0,laps:0,
   lapElapsed:0,bestLap:0,lastLap:0,lane:0,preferredLane:0,skill:null,
-  lateralVelocity:0,yawAngle:0,yawRate:0,damage:0,tireWear:100,mistakeTime:0,mistakeSide:1,finished:false,attacking:false
+  lateralVelocity:0,yawAngle:0,yawRate:0,damage:0,tireWear:100,mistakeTime:0,mistakeSide:1,
+  finished:false,attacking:false,started:false,startAt:0,raceStarted:false
 }));
 const trackLength=curve.getLength();
 let bestDry=0,bestWet=0;
@@ -299,6 +298,9 @@ let eventMode='free',eventStage='free',eventActive=false,eventFinished=false,eve
 let eventDurationSeconds=0,eventElapsed=0,eventTimeExpired=false,boardRefreshAt=0,eventPlayerDamage=0;
 let DAMAGE_ENABLED=true;
 let weekendQualOrder=[];
+const QUALIFYING_START_INTERVAL=20, FORMATION_SPEED=27.8, FORMATION_GAP=9;
+let raceStartState='none',raceGridOrder=[],racePlayerProgress=0,playerRaceStarted=false;
+function qualifyingStartOffset(index){return (index+1)*QUALIFYING_START_INTERVAL;}
 let tutPhase='pages',tutPage=0,tutTime=0,tutPassed=false;
 const operationLogger=createOperationLogger({
   getState:()=>({
@@ -336,7 +338,7 @@ function resetCar(){
   u._lockF=0;u._lockR=0;u._impact=0;u._blipT=0;u._dPrev=0;u._aero=0;
   u._rollV=0;u._pitchV=0;
   u.tireWear=100;
-  u.gear=1;u.rpm=IDLE;u.shiftT=0;
+  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftStartRpm=IDLE;
   u.lapValid=true;u._wallT=0;
   car.rotation.set(0,u.heading,0);chassis.rotation.set(0,0,0);chassis.position.y=0;
   elapsed=0;timerOn=false;lapStart=0;prevLap=0;prevValid=true;
@@ -391,6 +393,19 @@ function startGatePhase(){
 }
 function wrappedProgress(progress){
   return ((progress%trackLength)+trackLength)%trackLength;
+}
+function formationTargetSpeed(gridKey,progress){
+  const position=raceGridOrder.indexOf(gridKey);
+  let nearestAhead=Infinity;
+  for(let index=0;index<position;index++){
+    const key=raceGridOrder[index];
+    const ahead=key==='PLAYER'?racePlayerProgress:aiDrivers.find(driver=>driver.id===key)?.progress;
+    if(ahead===undefined)continue;
+    const gap=ahead-progress;
+    if(gap>2&&gap<nearestAhead)nearestAhead=gap;
+  }
+  const gap=Number.isFinite(nearestAhead)?nearestAhead:FORMATION_GAP;
+  return clamp(FORMATION_SPEED+(gap-FORMATION_GAP)*0.35,FORMATION_SPEED-5,FORMATION_SPEED+2);
 }
 function aiRacingLine(progress){
   const index=Math.floor(wrappedProgress(progress)/trackLength*NW)%NW;
@@ -472,29 +487,49 @@ function updateAI(dt){
   if(!eventActive||!timerOn)return;
   aiDrivers.forEach(ai=>{
     if(ai.finished)return;
+    if(eventStage==='qualifying'&&!ai.started&&eventElapsed>=ai.startAt){
+      ai.started=true;ai.lapElapsed=0;ai.mesh.visible=true;
+      logAction('qualifying-release',{driver:ai.id,offsetSeconds:ai.startAt});
+    }
+    if(eventStage==='qualifying'&&!ai.started)return;
     const skill=ai.skill||AI_SKILLS.pro;
     if(ai.mistakeTime>0)ai.mistakeTime=Math.max(0,ai.mistakeTime-dt);
     else if(skill.errorChance>0&&Math.random()<skill.errorChance*dt){
       ai.mistakeTime=0.8+Math.random()*1.2;
       ai.mistakeSide=Math.random()<0.5?-1:1;
     }
-    const target=Math.min(MAXSPD,aiTargetSpeed(ai)*(ai.mistakeTime>0?0.78:1)*(ai.attacking?1.06:1));
+    let target=Math.min(MAXSPD,aiTargetSpeed(ai)*(ai.mistakeTime>0?0.78:1)*(ai.attacking?1.06:1));
+    if(eventStage==='race'&&raceStartState==='formation'){
+      target=formationTargetSpeed(ai.id,ai.progress);
+      ai.attacking=false;
+    }
     const rate=target<ai.speed?skill.brake:skill.accel;
     ai.speed+=clamp(target-ai.speed,-rate*dt,rate*dt);
-    ai.progress+=ai.speed*dt;ai.lapElapsed+=dt;
+    ai.progress+=ai.speed*dt;
+    if(eventStage==='qualifying'||(eventStage==='race'&&ai.raceStarted))ai.lapElapsed+=dt;
     const index=Math.floor(wrappedProgress(ai.progress)/trackLength*NW)%NW;
     const lateralG=clamp(ai.speed*ai.speed/(Math.max(Rad[index],8)*9.81),0,3.2);
     ai.tireWear=Math.max(0,ai.tireWear-dt*(0.003+0.009*lateralG+0.002*Math.abs(ai.lateralVelocity)));
     if(ai.progress>=trackLength){
       ai.progress-=trackLength;ai.laps++;
-      ai.lastLap=ai.lapElapsed;ai.lapElapsed=0;
-      if(ai.lastLap>5&&(!ai.bestLap||ai.lastLap<ai.bestLap))ai.bestLap=ai.lastLap;
-      if(eventTimeExpired)ai.finished=true;
+      if(eventStage==='race'&&raceStartState==='formation'){
+        ai.laps=0;ai.lapElapsed=0;
+        if(raceGridOrder[0]===ai.id)startRaceGreen();
+        ai.raceStarted=true;
+      }else if(eventStage==='race'&&!ai.raceStarted){
+        ai.laps=0;ai.lapElapsed=0;ai.raceStarted=true;
+      }else{
+        ai.lastLap=ai.lapElapsed;ai.lapElapsed=0;
+        if(ai.lastLap>5&&(!ai.bestLap||ai.lastLap<ai.bestLap))ai.bestLap=ai.lastLap;
+        if(eventTimeExpired)ai.finished=true;
+      }
     }
     const tangent=curve.getTangentAt(wrappedProgress(ai.progress)/trackLength).normalize();
     let laneTarget=aiRacingLine(ai.progress)+(ai.mistakeTime>0?ai.mistakeSide*2.4:0);
     ai.attacking=false;
-    const opponents=[{mesh:car},...aiDrivers.filter(other=>other!==ai&&other.mesh.visible).map(other=>({mesh:other.mesh}))];
+    if(eventStage==='race'&&raceStartState==='formation')laneTarget=ai.preferredLane;
+    const opponents=eventStage==='qualifying'||(eventStage==='race'&&raceStartState==='formation')
+      ?[]:[{mesh:car},...aiDrivers.filter(other=>other!==ai&&other.mesh.visible).map(other=>({mesh:other.mesh}))];
     let nearestThreat=Infinity;
     opponents.forEach(opponent=>{
       const dx=opponent.mesh.position.x-ai.mesh.position.x,dz=opponent.mesh.position.z-ai.mesh.position.z;
@@ -517,8 +552,16 @@ function updateAI(dt){
     ai.mesh.rotation.y+=ai.yawAngle;
   });
 }
+function startRaceGreen(){
+  if(raceStartState!=='formation')return;
+  raceStartState='green';
+  eventElapsed=0;eventTimeExpired=false;playerRaceStarted=raceGridOrder[0]==='PLAYER';
+  if(playerRaceStarted)lapStart=elapsed;
+  aiDrivers.forEach(ai=>{ai.lapElapsed=0;});
+  logAction('race-green-flag',{startOrder:raceGridOrder});
+}
 function solveAIContacts(){
-  if(!eventActive)return;
+  if(!eventActive||eventStage==='qualifying')return;
   const playerForward={x:Math.sin(u.heading),z:Math.cos(u.heading)};
   const playerRight={x:Math.cos(u.heading),z:-Math.sin(u.heading)};
   const playerAxes=[playerForward,playerRight];
@@ -600,6 +643,8 @@ function beginEvent(type,fromWeekendQualifying=false,restarting=false){
   const previousStage=eventStage;
   if(!fromWeekendQualifying){eventMode=type;weekendQualOrder=[];}
   eventStage=type==='weekend'?(fromWeekendQualifying?'race':'qualifying'):type;
+  raceStartState=eventStage==='race'?'grid':'none';
+  raceGridOrder=[];racePlayerProgress=0;playerRaceStarted=false;
   eventDurationSeconds=Number(document.getElementById(eventStage==='qualifying'?'qualDuration':'raceDuration').value);
   eventElapsed=0;eventTimeExpired=false;eventLaps=0;eventPlayerBest=0;
   eventPlayerDamage=0;eventActive=true;eventFinished=false;boardRefreshAt=0;
@@ -618,24 +663,30 @@ function beginEvent(type,fromWeekendQualifying=false,restarting=false){
   const defaultGrid=eventStage==='race'
     ?['ai-1','ai-2','ai-3','PLAYER','ai-4','ai-5','ai-6','ai-7']
     :['PLAYER',...aiDrivers.map(ai=>ai.id)];
-  const grid=fromWeekendQualifying&&weekendQualOrder.length
-    ?weekendQualOrder:defaultGrid;
+  const grid=eventStage==='qualifying'
+    ?['PLAYER',...aiDrivers.map(ai=>ai.id)]
+    :fromWeekendQualifying&&weekendQualOrder.length?weekendQualOrder:defaultGrid;
+  raceGridOrder=eventStage==='race'?[...grid]:[];
   grid.forEach((key,index)=>{
     const slot=index+1;
     if(key==='PLAYER'){
-      const progress=placeOnGrid(car,slot);
+      const progress=eventStage==='qualifying'?0:placeOnGrid(car,slot);
+      if(eventStage==='qualifying')setTrackPosition(car,0,0);
+      racePlayerProgress=progress;
       const tangent=curve.getTangentAt(wrappedProgress(progress)/trackLength);
       u.heading=Math.atan2(tangent.x,tangent.z);
-      u.wpi=(NW+Math.round(progress/trackLength*NW)+25)%NW;
+      u.wpi=(NW+Math.round(progress/trackLength*NW))%NW;
     }else{
       const ai=aiDrivers.find(driver=>driver.id===key);
       if(!ai)return;
-      ai.progress=placeOnGrid(ai.mesh,slot);
-      ai.lane=slot%2===1?-2.5:2.5;
+      ai.progress=eventStage==='qualifying'?0:placeOnGrid(ai.mesh,slot);
+      if(eventStage==='qualifying')setTrackPosition(ai.mesh,0,0);
+      ai.lane=eventStage==='qualifying'?0:slot%2===1?-2.5:2.5;
       ai.preferredLane=ai.lane;
       ai.speed=0;ai.laps=0;ai.lapElapsed=0;ai.bestLap=0;ai.lastLap=0;
       ai.lateralVelocity=0;ai.yawAngle=0;ai.yawRate=0;ai.damage=0;ai.tireWear=100;ai.mistakeTime=0;ai.finished=false;ai.attacking=false;
-      ai.mesh.visible=true;
+      ai.started=eventStage!=='qualifying';ai.startAt=eventStage==='qualifying'?qualifyingStartOffset(index):0;
+      ai.raceStarted=false;ai.mesh.visible=eventStage!=='qualifying';
     }
   });
   document.getElementById('raceInfo').style.display='block';
@@ -754,13 +805,28 @@ document.getElementById('tutPrev').onclick=()=>{if(tutPage>0){tutPage--;renderPa
 document.getElementById('tutNext').onclick=()=>{if(tutPage<PAGES.length-1){tutPage++;renderPage();}else startGatePhase();};
 
 function gearRatio(){return u.gear===0?G_REV:GTOT[u.gear-1];}
+function startGearShift(nextGear,duration,blip=false){
+  u.shiftStartRpm=u.rpm;
+  u.shiftElapsed=0;
+  u.shiftDuration=duration;
+  u.shiftT=duration;
+  u.gear=nextGear;
+  if(blip)u._blipT=0.15;
+}
 function gearbox(dt){
   const v=Math.abs(u.vf);
-  u.rpm=Math.max(IDLE,v*K_RPM*gearRatio());
-  if(u.shiftT>0){u.shiftT-=dt;return;}
+  const coupledRpm=Math.max(IDLE,v*K_RPM*gearRatio());
+  if(u.shiftT>0){
+    u.shiftElapsed=Math.min(u.shiftDuration,u.shiftElapsed+dt);
+    const shiftProgress=u.shiftDuration?u.shiftElapsed/u.shiftDuration:1;
+    u.rpm=u.shiftStartRpm+(coupledRpm-u.shiftStartRpm)*shiftProgress;
+    u.shiftT=Math.max(0,u.shiftDuration-u.shiftElapsed);
+    return;
+  }
+  u.rpm=coupledRpm;
   if(u.gear===0)return;
   if(u.gear<6&&u.rpm>=AUTO_SHIFT_UP_RPM){
-    u.gear++;u.shiftT=0.20;
+    startGearShift(u.gear+1,0.20);
     return;
   }
   if(u.gear>1){
@@ -769,12 +835,14 @@ function gearbox(dt){
     const kickdown=ms.thr>0.85&&u.rpm<7600
       &&rpmLow>=AUTO_SHIFT_KICKDOWN_RPM&&safeDownshift;
     if(safeDownshift&&(u.rpm<AUTO_SHIFT_DOWNSHIFT_RPM||kickdown)){
-      u.gear--;u.shiftT=0.18;u._blipT=0.15;
+      startGearShift(u.gear-1,0.18,true);
     }
   }
 }
 function driveForce(){
   if(u.shiftT>0||ms.thr<=0)return 0;
+  if(eventActive&&eventStage==='race'&&raceStartState==='formation'
+    &&u.vf>=formationTargetSpeed('PLAYER',racePlayerProgress))return 0;
   if(u.rpm>REDLINE+120)return 0;
   const gr=gearRatio();
   const fT=TPEAK*torqueN(u.rpm)*gr/WHEEL_R;
@@ -818,49 +886,56 @@ function step(H,now){
   const v=Math.abs(vf);
   const vT=Math.hypot(vf,vl);
   const sb=clamp(vf/1.5,-1,1),sr=clamp(vf/0.5,-1,1);
-  const q=0.5*RHO*v*v;
-  const dfAdd=q*CLS*(WET?0.9:1);
+  const q=0.5*RHO*vT*vT;
+  const aero=computeAeroLoads(vT,RHO,CLS,DF_F,WET?0.9:1);
+  const dfAdd=aero.total;
   const dragF=q*CDA+q*CLS*IND;
   u._aero=dfAdd;
-  const dNt=MASS*u._aLon*CGH/WB;
+  const dNt=computeLoadTransfer(MASS,u._aLon,CGH,WB);
   u._dN+=(dNt-u._dN)*Math.min(1,14*H);
   const dN=u._dN;
   const Nf0=MASS*9.81*SU.FS_F,Nr0=MASS*9.81*(1-SU.FS_F);
-  const Nf=Math.max(500,Nf0 - dN + dfAdd*DF_F);
-  const Nr=Math.max(500,Nr0 + dN + dfAdd*DF_R);
-  const gripMod=(1-0.02*clamp(v/70,0,1))*(1-0.03*clamp(Math.abs(u._ay)/9.81,0,1.6));
-  let muF=mu*gripMod*clamp(1-KL*(Nf/Nf0-1),0.85,1.10)*SU.mF;
-  let muR=mu*gripMod*SU.REAR_MU_F*clamp(1-KL*(Nr/Nr0-1),0.85,1.10)*SU.mR;
+  const Nf=Math.max(500,Nf0-dN+aero.front);
+  const Nr=Math.max(500,Nr0+dN+aero.rear);
+  const frontRollShare=SU.RCF/(SU.RCF+SU.RCR);
+  const lateralTransfer=computeLoadTransfer(MASS,u._ay,CGH,TRACK_WIDTH);
+  const frontWheelLoads=computeLateralWheelLoads(Nf,lateralTransfer*frontRollShare);
+  const rearWheelLoads=computeLateralWheelLoads(Nr,lateralTransfer*(1-frontRollShare));
+  const muF=mu*SU.mF;
+  const muR=mu*SU.REAR_MU_F*SU.mR;
+  const capFLong=computeAxleGrip(frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
+  const capRLong=computeAxleGrip(rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
   let FxF=0,FxR=driveForce();
   if(FxR>0){
-    const cap=muR*Nr*TCS_FRAC[TCS_LVL];
+    const cap=capRLong*TCS_FRAC[TCS_LVL];
     if(FxR>cap){FxR=cap;u._tc=true;}else u._tc=false;
     if(TCS_LVL>0&&u._lockR>0.35)FxR*=(1-TCS_CUT[TCS_LVL]*Math.min(1,u._lockR));
   }else if(FxR<0){
-    const capR0=muR*Nr*0.6;
+    const capR0=capRLong*0.6;
     if(FxR<-capR0)FxR=-capR0;
     u._tc=false;
   }else u._tc=false;
   FxR+=engineBrake();
   let brkIn=ms.brk;
+  if(eventActive&&eventStage==='race'&&raceStartState==='formation'){
+    const targetSpeed=formationTargetSpeed('PLAYER',racePlayerProgress);
+    if(u.vf>targetSpeed)brkIn=Math.max(brkIn,clamp((u.vf-targetSpeed)*0.12,0,0.65));
+  }
   if(ABS_LVL>0&&u._lockF>0.3)brkIn*=(1-ABS_CUT[ABS_LVL]*Math.min(1,u._lockF));
   if(brkIn>0){const B=MAXBRK*brkIn;FxF-=B*BRK_BIAS_F*sb;FxR-=B*(1-BRK_BIAS_F)*sb;}
-  FxF=clamp(FxF,-muF*Nf,muF*Nf);
-  FxR=clamp(FxR,-muR*Nr,muR*Nr);
-  u._lockF+=(((brkIn>0&&Math.abs(FxF)>0.95*muF*Nf)?1:0)-u._lockF)*Math.min(1,25*H);
-  u._lockR+=(((ms.thr>0&&FxR>0.95*muR*Nr)?1:0)-u._lockR)*Math.min(1,25*H);
+  FxF=clamp(FxF,-capFLong,capFLong);
+  FxR=clamp(FxR,-capRLong,capRLong);
+  u._lockF+=(((brkIn>0&&Math.abs(FxF)>0.95*capFLong)?1:0)-u._lockF)*Math.min(1,25*H);
+  u._lockR+=(((ms.thr>0&&FxR>0.95*capRLong)?1:0)-u._lockR)*Math.min(1,25*H);
   const fade=clamp(vT/2,0,1);
   // FIX: toe bias scaled by fade => no constant pull at standstill/low speed
   const af=(Math.atan2(vl+r*LF,Math.max(vf,0.8)) - wa + SU.TOE_F)*fade;
   const ar=(Math.atan2(vl-r*LR,Math.max(vf,0.8)) - SU.TOE_R*0.6)*fade;
-  // FIX: friction circle with lateral floor => locked/spinning axle keeps 22% lateral grip
-  const circF=Math.sqrt(Math.max(0,(muF*Nf)*(muF*Nf)-FxF*FxF));
-  const circR=Math.sqrt(Math.max(0,(muR*Nr)*(muR*Nr)-FxR*FxR));
-  const capF=Math.max(circF,muF*Nf*LAT_FLOOR);
-  const capR=Math.max(circR,muR*Nr*LAT_FLOOR);
+  const capF=computeLateralCapacity(capFLong,FxF);
+  const capR=computeLateralCapacity(capRLong,FxR);
   const CW=WET?0.85:1;
-  const FyFt=tireFy(af,capF,CF_WET(CW,SU.CF));
-  const FyRt=tireFy(ar,capR,CR_WET(CW,SU.CR));
+  const FyFt=lateralTireForce(af,capF,CF_WET(CW,SU.CF));
+  const FyRt=lateralTireForce(ar,capR,CR_WET(CW,SU.CR));
   const aF=1-Math.exp(-(vT/SU.REL_F+10)*H),aR=1-Math.exp(-(vT/SU.REL_R+10)*H);
   u._FyF+=(FyFt-u._FyF)*aF;
   u._FyR+=(FyRt-u._FyR)*aR;
@@ -871,12 +946,11 @@ function step(H,now){
   const ay=(FyF*Math.cos(wa)+FyR)/MASS;
   const vSafe=Math.max(vT,1);
   const ax=(FxF+FxR)/MASS - dragF*(vf/vSafe)/MASS - ROLL*9.81*sr - dragK*vf;
-  let rdot=(LF*FyF*Math.cos(wa)-LR*FyR)/IZ - YAW_DAMP_BASE*r;
+  let rdot=(LF*FyF*Math.cos(wa)-LR*FyR)/IZ;
   if(u._satS>0.15&&v>14){
     const sgn=clamp(ar/0.08,-1,1);
     rdot+=sgn*SU.SPIN_GAIN*u._satS*Math.min(1,(v-14)/20);
   }
-  if(Math.abs(wa)<0.02)rdot-=r*0.8*clamp(Math.abs(vl)/4,0,1);
   vf+=(ax+vl*r)*H;
   vl+=(ay-vf*r)*H;
   vl-=dragF*(vl/vSafe)/MASS*H;
@@ -922,8 +996,6 @@ function step(H,now){
 }
 function CF_WET(cw,c){return c*cw;}
 function CR_WET(cw,c){return c*cw;}
-const YAW_DAMP_BASE=0.90;
-
 function updPlayer(dt,now){
   if(keys.w){}
   else if(keys.a&&keys.d){}
@@ -958,8 +1030,13 @@ function lapCheck(count){
   const wpn=wp[u.wpi];
   if(Math.hypot(car.position.x-wpn.x,car.position.z-wpn.z)<35){
     const nx2=(u.wpi+1)%NW;u.wpi=nx2;
-    if(!count)return;
     if(nx2===0){
+      if(eventActive&&eventStage==='race'&&raceStartState==='green'&&!playerRaceStarted){
+        playerRaceStarted=true;u.lap=1;lapStart=elapsed;
+        logAction('race-start-line');
+        return;
+      }
+      if(!count)return;
       const lt2=elapsed-lapStart;
       u.lap++;
       prevLap=lt2;prevValid=u.lapValid;
@@ -1007,7 +1084,11 @@ function hud(){
     const label=eventMode==='weekend'?(qualifying?'比赛周 · 排位':'比赛周 · 正赛')
       :(qualifying?'排位赛':'正赛');
     const remaining=Math.max(0,eventDurationSeconds-eventElapsed);
-    const status=eventTimeExpired?'<span class="flag">方格旗已出 · 完成当前圈</span>':`剩余 ${fmt(remaining)}`;
+    const nextRelease=aiDrivers.find(ai=>eventStage==='qualifying'&&!ai.started);
+    const status=eventTimeExpired?'<span class="flag">方格旗已出 · 完成当前圈</span>'
+      :eventStage==='qualifying'&&nextRelease?`分开发车 · 间隔20s · 下一车 ${Math.max(0,nextRelease.startAt-eventElapsed).toFixed(1)}s`
+      :eventStage==='race'&&raceStartState!=='green'?'编队圈 · 100km/h限速 · 禁止超车'
+      :`剩余 ${fmt(remaining)}`;
     const rows=standings.map((entry,index)=>{
       let gap='LEADER';
       if(index>0){
@@ -1078,17 +1159,29 @@ function loop(){
   }
   if(mode==='race'){
     if(eventFinished){hud();mmap();R.render(scene,cam);return;}
-    if(!timerOn&&(keys.a||keys.d||ms.thr>0||ms.brk>0)){timerOn=true;lapStart=0;elapsed=0;}
+    if(!timerOn&&(keys.a||keys.d||ms.thr>0||ms.brk>0)){
+      timerOn=true;lapStart=0;elapsed=0;
+      if(eventActive&&eventStage==='race'&&raceStartState==='grid'){
+        raceStartState='formation';
+        logAction('formation-lap-start',{speedLimitMps:FORMATION_SPEED});
+      }
+    }
     if(timerOn){
       elapsed+=dt;
       if(eventActive){
-        eventElapsed+=dt;
-        if(eventElapsed>=eventDurationSeconds)eventTimeExpired=true;
+        if(eventStage==='qualifying'||raceStartState==='green'){
+          eventElapsed+=dt;
+          if(eventElapsed>=eventDurationSeconds)eventTimeExpired=true;
+        }
       }
     }
     updPlayer(dt,now);
+    if(eventActive&&eventStage==='race'&&raceStartState==='formation'){
+      racePlayerProgress+=Math.max(0,u.vf)*dt;
+      if(raceGridOrder[0]==='PLAYER'&&racePlayerProgress>=trackLength)startRaceGreen();
+    }
     updateAI(dt);
-    if(timerOn)lapCheck(true);
+    if(timerOn)lapCheck(!eventActive||eventStage==='qualifying'||(raceStartState==='green'&&playerRaceStarted));
   }else{
     updPlayer(dt,now);
     lapCheck(false);
