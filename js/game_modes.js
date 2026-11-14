@@ -95,6 +95,7 @@ const YAW_INERTIA=MASS*(4.633*4.633+2.045*2.045)/12;
 const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.10, REFERENCE_WHEEL_LOAD=3000;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
 const ROLL=0.013, MAXSPD=78;
+const LONGITUDINAL_TIRE_STIFFNESS=90000, WHEEL_INERTIA=1.2;
 const AERO_CONFIG={
   airDensity:1.225,downforceArea:2.6,dragArea:0.95,referenceArea:2.2,
   inducedDrag:0.045,frontShare:0.42,preset:aeroPresets.balanced
@@ -114,7 +115,7 @@ const TRANSMISSION_CONFIG={
   shiftDuration:0.09,torqueCutFraction:0.35,torqueRecoveryFraction:0.32
 };
 const STEERING_CONFIG={
-  maximumAngle:360*D2R,turnRateDegrees:120,returnRateDegrees:90,
+  maximumAngle:360*D2R,turnRateDegrees:75,returnRateDegrees:90,
   initialTapDegrees:5,repeatTapDegrees:20,tapThresholdDegrees:2
 };
 const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
@@ -147,7 +148,7 @@ const SETUPS=[
   antiRollFront:16000,antiRollRear:32000,antiRollDamping:1200}
 ];
 SETUPS.forEach(s=>{
-  s.frontShare=0.485;
+  s.frontShare=LR/WB;
   s.camberGripFront=Math.max(0.9,Math.min(1,1-0.012*(s.CAM_F+2.5)**2));
   s.camberGripRear=Math.max(0.9,Math.min(1,1-0.012*(s.CAM_R+2.5)**2));
 });
@@ -257,6 +258,7 @@ function resetCar(){
   u.vf=0;u.vl=0;u.yaw=0;u.steer=0;u.latG=0;u.slipR=0;u.surf='track';u.prevSurf='track';
   u._satS=0;u._aLon=0;u._ay=0;u._ar=0;u._FyF=0;u._FyR=0;u._tc=false;
   u._lockF=0;u._lockR=0;u._wheelOmegaF=0;u._wheelOmegaR=0;u._wheelSlipF=0;u._wheelSlipR=0;
+  u._wheelStates=Array.from({length:4},()=>({omega:0,lateralForce:0,lock:0,spin:0}));
   u._impact=0;u._dPrev=0;u._aero=0;
   u.tireWear=100;
   u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftCooldown=0;u.shiftStartRpm=IDLE;u.previousThrottle=0;u._shiftTorqueFactor=1;
@@ -786,9 +788,7 @@ function step(H,now){
   u._dPrev=d;
 
   let vf=u.vf,vl=u.vl,r=u.yaw;
-  const v=Math.abs(vf);
   const vT=Math.hypot(vf,vl);
-  const sr=clamp(vf/0.5,-1,1);
   const aero=aerodynamics.compute(vT,AERO_CONFIG);
   const dragF=aero.drag;
   u._aero=aero.total;
@@ -799,80 +799,93 @@ function step(H,now){
   const rearWheelLoads=wheelLoads.rear;
   const muF=mu*SU.camberGripFront;
   const muR=mu*SU.camberGripRear;
-  const capFLong=tires.computeAxleGrip(frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
   const capRLong=tires.computeAxleGrip(rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
   let driveDemand=driveForce();
   const driveLimit=capRLong*TCS_FRAC[TCS_LVL];
   if(TCS_LVL>0&&driveDemand>driveLimit){driveDemand=driveLimit;u._tc=true;}
   else u._tc=false;
-  if(TCS_LVL>0&&driveDemand>0&&u._lockR>0.35){
-    driveDemand*=(1-TCS_CUT[TCS_LVL]*Math.min(1,u._lockR));
-    u._tc=true;
-  }
   let brkIn=ms.brk;
   if(eventActive&&eventStage==='race'&&raceStartState==='formation'){
     const targetSpeed=formationTargetSpeed('PLAYER',racePlayerProgress);
     if(u.vf>targetSpeed)brkIn=Math.max(brkIn,clamp((u.vf-targetSpeed)*0.12,0,0.65));
   }
-  if(ABS_LVL>0&&u._lockF>0.3)brkIn*=(1-ABS_CUT[ABS_LVL]*Math.min(1,u._lockF));
-  const frontWheelSpeed=vf*Math.cos(wa)+(vl+r*LF)*Math.sin(wa);
-  const slipF=(u._wheelOmegaF*WHEEL_R-frontWheelSpeed)/Math.max(Math.abs(frontWheelSpeed),1);
-  const slipR=(u._wheelOmegaR*WHEEL_R-vf)/Math.max(Math.abs(vf),1);
   const brakeForce=MAXBRK*brkIn;
-  const frontDriveTorque=0;
-  const rearDriveTorque=(driveDemand+engineBrake())*WHEEL_R/2;
   const frontBrakeTorque=brakeForce*BRK_BIAS_F*WHEEL_R/2;
   const rearBrakeTorque=brakeForce*(1-BRK_BIAS_F)*WHEEL_R/2;
-  const tireStiffnessF=CF_WET(WET?0.85:1,SU.CF);
-  const tireStiffnessR=CR_WET(WET?0.85:1,SU.CR);
-  const FxF=tires.computeAxleLongitudinalForce(
-    slipF,frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY,tireStiffnessF
-  );
-  const FxR=tires.computeAxleLongitudinalForce(
-    slipR,rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY,tireStiffnessR
-  );
-  const wheelInertia=1.2;
-  const brakeSignF=Math.sign(u._wheelOmegaF||frontWheelSpeed);
-  const brakeSignR=Math.sign(u._wheelOmegaR||vf);
-  u._wheelOmegaF+=(
-    frontDriveTorque-frontBrakeTorque*brakeSignF-FxF*WHEEL_R
-  )/wheelInertia*H;
-  u._wheelOmegaR+=(
-    rearDriveTorque-rearBrakeTorque*brakeSignR-FxR*WHEEL_R
-  )/wheelInertia*H;
-  if(brakeForce>0&&u._wheelOmegaF*frontWheelSpeed<0)u._wheelOmegaF=0;
-  if(brakeForce>0&&u._wheelOmegaR*vf<0)u._wheelOmegaR=0;
+  const rearDriveTorque=(driveDemand+engineBrake())*WHEEL_R/2;
+  const steeringAngles=vehicleControls.ackermannAngles(wa,WB,TRACK_WIDTH);
+  const wheelPositions=[
+    {x:-TRACK_WIDTH/2,z:LF,load:frontWheelLoads[0],steer:steeringAngles[0],drive:0,brake:frontBrakeTorque,mu:muF,cornering:SU.CF/2},
+    {x: TRACK_WIDTH/2,z:LF,load:frontWheelLoads[1],steer:steeringAngles[1],drive:0,brake:frontBrakeTorque,mu:muF,cornering:SU.CF/2},
+    {x:-TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[0],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:muR,cornering:SU.CR/2},
+    {x: TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[1],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:muR,cornering:SU.CR/2}
+  ];
+  let totalLongitudinalForce=0,totalLateralForce=0,totalYawMoment=0;
+  let frontLateralForce=0,rearLateralForce=0;
+  let rearSlip=0,frontLock=0,rearSpin=0,rearSaturation=0;
+  const wetTireScale=WET?0.85:1;
+  const tireResults=wheelPositions.map((wheel,index)=>{
+    const wheelSteer=wheel.z>0?wheel.steer+SU.TOE_F:SU.TOE_R*0.6;
+    const wheelForwardSpeed=vf-r*wheel.x;
+    const wheelLateralSpeed=vl+r*wheel.z;
+    const longitudinalSpeed=wheelForwardSpeed*Math.cos(wheelSteer)
+      +wheelLateralSpeed*Math.sin(wheelSteer);
+    const lateralSpeed=-wheelForwardSpeed*Math.sin(wheelSteer)
+      +wheelLateralSpeed*Math.cos(wheelSteer);
+    const result=tires.stepWheel(u._wheelStates[index],{
+      radius:WHEEL_R,inertia:WHEEL_INERTIA,normalLoad:wheel.load,
+      frictionCoefficient:wheel.mu,referenceWheelLoad:REFERENCE_WHEEL_LOAD,
+      loadSensitivity:TIRE_LOAD_SENSITIVITY,longitudinalSpeed,lateralSpeed,
+      minimumSlipSpeed:1.5,longitudinalStiffness:LONGITUDINAL_TIRE_STIFFNESS*wetTireScale,
+      corneringStiffness:wheel.cornering*wetTireScale,
+      relaxationLength:wheel.z>0?SU.REL_F:SU.REL_R,
+      driveTorque:wheel.drive*(wheel.z<0&&TCS_LVL>0
+        ?1-TCS_CUT[TCS_LVL]*u._wheelStates[index].spin:1),
+      brakeTorque:wheel.brake*(ABS_LVL>0
+        ?1-ABS_CUT[ABS_LVL]*u._wheelStates[index].lock:1)
+    },H);
+    const forceForward=result.longitudinalForce*Math.cos(wheelSteer)
+      -result.lateralForce*Math.sin(wheelSteer);
+    const forceRight=result.longitudinalForce*Math.sin(wheelSteer)
+      +result.lateralForce*Math.cos(wheelSteer);
+    totalLongitudinalForce+=forceForward;
+    totalLateralForce+=forceRight;
+    totalYawMoment+=wheel.z*forceRight-wheel.x*forceForward;
+    const lockTarget=brkIn>0?clamp((-result.slipRatio-0.08)/0.18,0,1):0;
+    const spinTarget=wheel.z<0&&driveDemand>0
+      ?clamp((result.slipRatio-0.08)/0.22,0,1):0;
+    u._wheelStates[index].lock+=(lockTarget-u._wheelStates[index].lock)*Math.min(1,25*H);
+    u._wheelStates[index].spin+=(spinTarget-u._wheelStates[index].spin)*Math.min(1,25*H);
+    if(wheel.z>0){
+      frontLateralForce+=forceRight;
+      frontLock=Math.max(frontLock,u._wheelStates[index].lock);
+    }else{
+      rearLateralForce+=forceRight;
+      rearSlip+=result.slipAngle/2;
+      rearSpin=Math.max(rearSpin,u._wheelStates[index].spin);
+      rearSaturation=Math.max(rearSaturation,clamp((result.utilization-0.75)/0.25,0,1));
+    }
+    return result;
+  });
+  const slipF=tireResults.slice(0,2).reduce((sum,result)=>sum+result.slipRatio,0)/2;
+  const slipR=tireResults.slice(2).reduce((sum,result)=>sum+result.slipRatio,0)/2;
+  u._wheelOmegaF=(u._wheelStates[0].omega+u._wheelStates[1].omega)/2;
+  u._wheelOmegaR=(u._wheelStates[2].omega+u._wheelStates[3].omega)/2;
   u._wheelSlipF=slipF;u._wheelSlipR=slipR;
-  const lockTarget=brkIn>0?clamp((-slipF-0.08)/0.18,0,1):0;
-  const spinTarget=driveDemand>0?clamp((slipR-0.08)/0.22,0,1):0;
-  u._lockF+=(lockTarget-u._lockF)*Math.min(1,25*H);
-  u._lockR+=(spinTarget-u._lockR)*Math.min(1,25*H);
-  const fade=clamp(vT/2,0,1);
-  // FIX: toe bias scaled by fade => no constant pull at standstill/low speed
-  const af=(Math.atan2(vl+r*LF,Math.max(vf,0.8)) - wa + SU.TOE_F)*fade;
-  const ar=(Math.atan2(vl-r*LR,Math.max(vf,0.8)) - SU.TOE_R*0.6)*fade;
-  const lateralFloor=u._lockF>0.35||u._lockR>0.35?0.22:0;
-  const capF=tires.computeLateralCapacity(capFLong,FxF,lateralFloor);
-  const capR=tires.computeLateralCapacity(capRLong,FxR,lateralFloor);
-  const CW=WET?0.85:1;
-  const FyFt=tires.lateralTireForce(af,capF,CF_WET(CW,SU.CF));
-  const FyRt=tires.lateralTireForce(ar,capR,CR_WET(CW,SU.CR));
-  const aF=1-Math.exp(-Math.max(vT,1)/SU.REL_F*H);
-  const aR=1-Math.exp(-Math.max(vT,1)/SU.REL_R*H);
-  u._FyF+=(FyFt-u._FyF)*aF;
-  u._FyR+=(FyRt-u._FyR)*aR;
-  const FyF=u._FyF,FyR=u._FyR;
-  // Rear-axle saturation feeds wear and skid-mark state without adding artificial yaw torque.
-  const satR=clamp((Math.abs(SU.CR*ar)-capR)/(capR*0.5+1),0,1)*clamp((Math.abs(ar)-0.03)/0.05,0,1);
+  u._lockF+=(frontLock-u._lockF)*Math.min(1,25*H);
+  u._lockR+=(rearSpin-u._lockR)*Math.min(1,25*H);
+  u._FyF=frontLateralForce;u._FyR=rearLateralForce;
+  const satR=rearSaturation;
   u._satS+=(satR-u._satS)*Math.min(1,10*H);
-  const ay=(FyF*Math.cos(wa)+FyR)/MASS;
+  u._ar=rearSlip;
+  const ay=totalLateralForce/MASS;
   const vSafe=Math.max(vT,1);
-  const ax=(FxF+FxR)/MASS - dragF*(vf/vSafe)/MASS - ROLL*9.81*sr - dragK*vf;
-  let rdot=(LF*FyF*Math.cos(wa)-LR*FyR)/YAW_INERTIA;
-  vf+=(ax+vl*r)*H;
-  vl+=(ay-vf*r)*H;
-  vl-=dragF*(vl/vSafe)/MASS*H;
-  r+=rdot*H;
+  const ax=totalLongitudinalForce/MASS - dragF*(vf/vSafe)/MASS
+    - ROLL*9.81*Math.tanh(vf/0.5) - dragK*vf;
+  const rdot=totalYawMoment/YAW_INERTIA;
+  const nextVf=vf+(ax+vl*r)*H;
+  const nextVl=vl+(ay-vf*r-dragF*(vl/vSafe)/MASS)*H;
+  vf=nextVf;vl=nextVl;r+=rdot*H;
   if(brkIn>0.3&&Math.abs(vf)<0.35&&ms.thr===0)vf=0;
   if(ms.thr===0&&vT<0.9){
     const k=Math.min(1,12*H);
@@ -880,7 +893,7 @@ function step(H,now){
   }
   vf=clamp(vf,-8,MAXSPD);vl=clamp(vl,-22,22);r=clamp(r,-2.2,2.2);
   if(!isFinite(vf)||!isFinite(vl)||!isFinite(r)||!isFinite(u.heading)){vf=0;vl=0;r=0;}
-  u._aLon=ax;u._ay=ay;u._ar=ar;
+  u._aLon=ax;u._ay=ay;
   const wearRate=0.003+Math.min(3,Math.abs(ay)/9.81)*0.012
     +clamp(Math.abs(u.steer)/SMAX,0,1)*0.004+ms.brk*0.006+(u._satS||0)*0.012;
   u.tireWear=Math.max(0,u.tireWear-wearRate*H);
@@ -908,15 +921,18 @@ function step(H,now){
   car.position.x+=(fx*u.vf+rx*u.vl)*H;
   car.position.z+=(fz*u.vf+rz*u.vl)*H;
   if(eventActive)solveAIContacts();
-  const rRate=u.vf*(1+1.0*u._lockR),fRate=u.vf*(1-0.85*u._lockF);
-  u.w[0].rotation.x+=rRate*H*2.5;u.w[1].rotation.x+=rRate*H*2.5;
-  u.w[2].rotation.x+=fRate*H*2.5;u.w[3].rotation.x+=fRate*H*2.5;
+  u.w[0].rotation.x+=u._wheelStates[2].omega*H;
+  u.w[1].rotation.x+=u._wheelStates[3].omega*H;
+  u.w[2].rotation.x+=u._wheelStates[0].omega*H;
+  u.w[3].rotation.x+=u._wheelStates[1].omega*H;
 }
-function CF_WET(cw,c){return c*cw;}
-function CR_WET(cw,c){return c*cw;}
 function updPlayer(dt,now){
   u.steer=vehicleControls.stepSteering(u.steer,keys,dt,STEERING_CONFIG);
-  u.pv.forEach(p=>p.rotation.y=clamp(u.steer/SR,-MWA,MWA));
+  const wheelSteering=vehicleControls.ackermannAngles(
+    clamp(u.steer/SR,-MWA,MWA),WB,TRACK_WIDTH
+  );
+  u.pv[0].rotation.y=wheelSteering[0];
+  u.pv[1].rotation.y=wheelSteering[1];
   acc+=dt;const H=1/240;let n=0;
   while(acc>=H&&n<10){step(H,now);acc-=H;n++;}
   if(n>=10)acc=0;

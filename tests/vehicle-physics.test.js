@@ -34,7 +34,7 @@ const suspensionInput = aero => ({
 });
 
 const suspensionSetup = {
-  frontShare: 0.485,
+  frontShare: 1.31 / 2.7,
   springFront: 95000,
   springRear: 105000,
   damperFront: 7800,
@@ -89,14 +89,26 @@ test('suspension roll transfers load across the axle without losing total load',
       suspensionSetup
     );
   }
-  assert.ok(loads.front[1] > loads.front[0]);
-  assert.ok(loads.rear[1] > loads.rear[0]);
+  assert.ok(loads.front[0] > loads.front[1]);
+  assert.ok(loads.rear[0] > loads.rear[1]);
   assert.ok(Math.abs(
     loads.front.concat(loads.rear).reduce((sum, load) => sum + load, 0) - 1260 * 9.81
   ) < 2);
+
+  const oppositeState = physics.suspension.createState();
+  for (let frame = 0; frame < 1200; frame++) {
+    loads = physics.suspension.step(
+      oppositeState,
+      { ...suspensionInput({ front: 0, rear: 0, total: 0 }), lateralAcceleration: -6 },
+      1 / 240,
+      suspensionSetup
+    );
+  }
+  assert.ok(loads.front[1] > loads.front[0]);
+  assert.ok(loads.rear[1] > loads.rear[0]);
 });
 
-test('static axle load matches the configured 48.5 percent front distribution', () => {
+test('static axle load follows the configured axle-to-center-of-gravity geometry', () => {
   const loads = physics.suspension.step(
     physics.suspension.createState(),
     suspensionInput({ front: 0, rear: 0, total: 0 }),
@@ -104,7 +116,7 @@ test('static axle load matches the configured 48.5 percent front distribution', 
     suspensionSetup
   );
   const frontLoad = loads.front.reduce((sum, load) => sum + load, 0);
-  assert.ok(Math.abs(frontLoad / (1260 * 9.81) - 0.485) < 1e-12);
+  assert.ok(Math.abs(frontLoad / (1260 * 9.81) - 1.31 / 2.7) < 1e-12);
 });
 
 test('front anti-roll stiffness shifts a larger share of lateral load to the front axle', () => {
@@ -124,8 +136,8 @@ test('front anti-roll stiffness shifts a larger share of lateral load to the fro
   };
   const soft = evaluate(0);
   const frontStiff = evaluate(40000);
-  const frontTransfer = loads => loads.front[1] - loads.front[0];
-  const rearTransfer = loads => loads.rear[1] - loads.rear[0];
+  const frontTransfer = loads => loads.front[0] - loads.front[1];
+  const rearTransfer = loads => loads.rear[0] - loads.rear[1];
   assert.ok(frontTransfer(frontStiff) > frontTransfer(soft));
   assert.ok(rearTransfer(frontStiff) < rearTransfer(soft));
 });
@@ -145,8 +157,9 @@ test('combined-slip lateral capacity stays inside the friction ellipse', () => {
   assert.ok(capacity * capacity + 8000 * 8000 <= 10000 * 10000);
 });
 
-test('locked and spinning tires retain the sliding lateral reserve from the base game', () => {
-  assert.equal(physics.tires.computeLateralCapacity(10000, 10000, 0.22), 2200);
+test('combined tire force respects the friction ellipse without an artificial lateral reserve', () => {
+  assert.equal(physics.tires.computeLateralCapacity(10000, 10000), 0);
+  assert.ok(physics.tires.computeLateralCapacity(10000, 8000) ** 2 + 8000 ** 2 <= 10000 ** 2);
 });
 
 test('Magic Formula lateral force is restoring, linear near zero, and saturates', () => {
@@ -164,4 +177,57 @@ test('longitudinal tire force follows slip direction and remains load-limited', 
   assert.ok(force(-0.08, 5000, 80000) < 0);
   assert.ok(Math.abs(force(1, 5000, 80000)) <= 5000);
   assert.equal(force(0.1, 0, 80000), 0);
+});
+
+test('each wheel integrates spin torque stably and limits combined tire force', () => {
+  const state = { omega: 10 / 0.355, lateralForce: 0 };
+  const input = {
+    radius: 0.355,
+    inertia: 1.2,
+    normalLoad: 3200,
+    frictionCoefficient: 1.6,
+    referenceWheelLoad: 3000,
+    loadSensitivity: 0.1,
+    longitudinalSpeed: 10,
+    lateralSpeed: 0.8,
+    minimumSlipSpeed: 1.5,
+    longitudinalStiffness: 90000,
+    corneringStiffness: 135000,
+    relaxationLength: 0.45,
+    driveTorque: 80,
+    brakeTorque: 0
+  };
+  let result;
+  for (let frame = 0; frame < 240; frame++) {
+    result = physics.tires.stepWheel(state, input, 1 / 240);
+    assert.ok(Number.isFinite(state.omega));
+    assert.ok(Number.isFinite(result.lateralForce));
+    assert.ok(Math.hypot(result.longitudinalForce, result.lateralForce) <= result.grip + 1e-6);
+  }
+  assert.ok(Math.abs(state.omega - 10 / 0.355) < 5);
+  assert.ok(state.lateralForce < 0);
+});
+
+test('wheel braking opposes travel and a suddenly unloaded tire stays inside its new grip limit', () => {
+  const state = { omega: 10 / 0.355, lateralForce: -4000 };
+  const input = {
+    radius: 0.355,
+    inertia: 1.2,
+    normalLoad: 500,
+    frictionCoefficient: 1.2,
+    referenceWheelLoad: 3000,
+    loadSensitivity: 0.1,
+    longitudinalSpeed: 10,
+    lateralSpeed: 0,
+    minimumSlipSpeed: 1.5,
+    longitudinalStiffness: 90000,
+    corneringStiffness: 67500,
+    relaxationLength: 0.45,
+    driveTorque: 0,
+    brakeTorque: 1800
+  };
+  const result = physics.tires.stepWheel(state, input, 1 / 240);
+  assert.ok(state.omega >= 0);
+  assert.ok(result.longitudinalForce < 0);
+  assert.ok(Math.hypot(result.longitudinalForce, result.lateralForce) <= result.grip + 1e-6);
 });

@@ -22,6 +22,20 @@
     return Math.max(-config.maximumAngle, Math.min(config.maximumAngle, nextAngle));
   }
 
+  function ackermannAngles(steeringAngle, wheelbase, trackWidth) {
+    if (Math.abs(steeringAngle) < 1e-6) return [steeringAngle, steeringAngle];
+    const turnSign = Math.sign(steeringAngle);
+    const turnRadius = wheelbase / Math.abs(Math.tan(steeringAngle));
+    return [-trackWidth / 2, trackWidth / 2].map(wheelX => {
+      const isInside = wheelX * turnSign > 0;
+      const radius = Math.max(
+        0.1,
+        turnRadius + (isInside ? -trackWidth / 2 : trackWidth / 2)
+      );
+      return turnSign * Math.atan(wheelbase / radius);
+    });
+  }
+
   window.GameModules = window.GameModules || {};
-  window.GameModules.vehicleControls = { stepSteering, tapSteering };
+  window.GameModules.vehicleControls = { stepSteering, tapSteering, ackermannAngles };
 })();

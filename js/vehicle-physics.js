@@ -63,8 +63,8 @@
       + setup.antiRollFront + setup.antiRollRear;
     const rollDamping = (frontDamper + rearDamper) * trackWidth ** 2 / 2
       + setup.antiRollDamping;
-    const pitchInertia = mass * wheelbase ** 2 * 0.18;
-    const rollInertia = mass * (wheelbase ** 2 + trackWidth ** 2) * 0.1;
+    const pitchInertia = sprungMass * wheelbase ** 2 * 0.18;
+    const rollInertia = sprungMass * (wheelbase ** 2 + trackWidth ** 2) * 0.1;
 
     const heaveAcceleration = (
       input.aero.total
@@ -79,7 +79,7 @@
       - pitchDamping * state.pitchVelocity - heavePitchStiffness * state.heave
       - pitchStiffness * state.pitch
     ) / pitchInertia;
-    const rollMoment = mass * input.lateralAcceleration * input.cgHeight;
+    const rollMoment = -mass * input.lateralAcceleration * input.cgHeight;
     const rollAcceleration = (
       rollMoment - rollDamping * state.rollVelocity - rollStiffness * state.roll
     ) / rollInertia;
@@ -132,10 +132,9 @@
     }, 0);
   }
 
-  function computeLateralCapacity(totalGrip, longitudinalForce, slidingGripFraction = 0) {
+  function computeLateralCapacity(totalGrip, longitudinalForce) {
     const ratio = Math.min(1, Math.abs(longitudinalForce) / Math.max(totalGrip, 1));
-    const frictionEllipseCapacity = totalGrip * Math.sqrt(1 - ratio * ratio);
-    return Math.max(frictionEllipseCapacity, totalGrip * slidingGripFraction);
+    return totalGrip * Math.sqrt(1 - ratio * ratio);
   }
 
   function magicFormula(slip, capacity, stiffness, shape) {
@@ -170,6 +169,75 @@
     }, 0);
   }
 
+  function stepWheelTire(state, input, dt) {
+    const radius = input.radius;
+    const normalLoad = Math.max(0, input.normalLoad);
+    const grip = computeAxleGrip(
+      [normalLoad],
+      input.frictionCoefficient,
+      input.referenceWheelLoad,
+      input.loadSensitivity
+    );
+    const longitudinalSpeed = input.longitudinalSpeed;
+    const slipDenominator = Math.max(Math.abs(longitudinalSpeed), input.minimumSlipSpeed);
+    const wheelOmega = state.omega;
+    const slipAt = omega => (omega * radius - longitudinalSpeed) / slipDenominator;
+    const longitudinalAt = omega => longitudinalTireForce(
+      slipAt(omega), grip, input.longitudinalStiffness
+    );
+    const initialLongitudinalForce = longitudinalAt(wheelOmega);
+    const sampleStep = Math.max(0.1, Math.abs(wheelOmega) * 0.01);
+    const slope = Math.max(0, (
+      longitudinalAt(wheelOmega + sampleStep)
+      - longitudinalAt(wheelOmega - sampleStep)
+    ) / (2 * sampleStep));
+    const brakeDirection = Math.sign(wheelOmega || longitudinalSpeed);
+    const appliedTorque = input.driveTorque - input.brakeTorque * brakeDirection;
+    const effectiveInertia = input.inertia / dt + slope * radius;
+    let nextOmega = wheelOmega
+      + (appliedTorque - initialLongitudinalForce * radius) / effectiveInertia;
+    if (input.brakeTorque > 0 && longitudinalSpeed !== 0
+      && nextOmega * longitudinalSpeed < 0) {
+      nextOmega = 0;
+    }
+
+    const meanOmega = (wheelOmega + nextOmega) * 0.5;
+    const slipRatio = slipAt(meanOmega);
+    const longitudinalForce = longitudinalTireForce(
+      slipRatio, grip, input.longitudinalStiffness
+    );
+    const slipAngle = Math.atan2(
+      input.lateralSpeed,
+      Math.max(Math.abs(longitudinalSpeed), input.minimumSlipSpeed)
+    );
+    const lateralCapacity = computeLateralCapacity(grip, longitudinalForce);
+    const lateralTarget = lateralTireForce(
+      slipAngle, lateralCapacity, input.corneringStiffness
+    );
+    const response = 1 - Math.exp(
+      -Math.max(Math.abs(longitudinalSpeed), input.minimumSlipSpeed)
+      * dt / input.relaxationLength
+    );
+
+    state.omega = nextOmega;
+    state.lateralForce += (lateralTarget - state.lateralForce) * response;
+    state.lateralForce = Math.max(
+      -lateralCapacity,
+      Math.min(lateralCapacity, state.lateralForce)
+    );
+    return {
+      omega: nextOmega,
+      grip,
+      slipRatio,
+      slipAngle,
+      longitudinalForce,
+      lateralForce: state.lateralForce,
+      utilization: grip > 0
+        ? Math.hypot(longitudinalForce, state.lateralForce) / grip
+        : 0
+    };
+  }
+
   window.GameModules = window.GameModules || {};
   window.GameModules.vehiclePhysics = {
     aeroPresets: AERO_PRESETS,
@@ -183,7 +251,8 @@
       computeAxleLongitudinalForce,
       computeLateralCapacity,
       lateralTireForce,
-      longitudinalTireForce
+      longitudinalTireForce,
+      stepWheel: stepWheelTire
     }
   };
 })();
