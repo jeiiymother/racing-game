@@ -32,11 +32,11 @@
 </div>
 <div id="wallWarn">⛔ 四轮出界! 本圈不计最佳圈速</div>
 <div id="setupBox">
-<h2>🔧 调教方案（仅悬挂与底盘）</h2>
-<div class="note">引擎/变速箱/空气动力学在三方案间完全不变 · 比赛中按 Q 循环切换</div>
-<div class="scard" id="sc0"><div class="t">🛡 STABLE · 轻微转向不足</div><div class="d">前配重↑ 前防倾杆/弹簧硬 后束in↑ 后轴储备满 自增强横摆低 → 高速稳定、弯中轻推头，适合新手/雨战</div></div>
-<div class="scard" id="sc1"><div class="t">⚖ BALANCED · 适中</div><div class="d">基准悬挂几何与配重 → 中性转向，循迹刹车与甩尾边界平衡</div></div>
-<div class="scard" id="sc2"><div class="t">🔥 AGILE · 轻微转向过度</div><div class="d">后配重↑ 后防倾杆/弹簧硬 前束out 后轴储备↓ 自增强横摆高 → 转向敏捷、弯中轻甩尾，适合MR甩尾/救车</div></div>
+<h2>🔧 底盘调教方案</h2>
+<div class="note">方案改变弹簧、防倾杆与阻尼平衡；气动套件在主菜单单独选择</div>
+<div class="scard" id="sc0"><div class="t">🛡 STABLE · 稳定</div><div class="d">较高前轴侧倾刚度与保守弹簧阻尼平衡 → 高速更稳定，倾向轻微转向不足</div></div>
+<div class="scard" id="sc1"><div class="t">⚖ BALANCED · 适中</div><div class="d">中性弹簧、防倾杆与阻尼基准 → 均衡的转向响应与车身姿态</div></div>
+<div class="scard" id="sc2"><div class="t">🔥 AGILE · 灵活</div><div class="d">提高后轴弹簧与防倾杆比重 → 更灵活，但后轴极限更敏感</div></div>
 <button class="closeb" id="setupClose">关闭</button>
 </div>
 <div id="tut">
@@ -56,7 +56,7 @@
 </div>
 <div id="menu" style="display:none">
 <h1>SILVERSTONE <span>GT3</span></h1>
-<div class="sub">488 GT3 · MR PHYSICS · 240Hz SIM · 干/雨 · 3调教</div>
+<div class="sub">488 GT3 · 240Hz VEHICLE MODEL · 干/雨 · 3底盘 / 3气动</div>
 <button class="primary" id="btnRace">🏁 自由驾驶 · 干地 (无限圈)</button>
 <button class="wetb" id="btnRaceWet">🌧 自由驾驶 · 雨天 (无限圈)</button>
 <label for="eventWeather" style="color:#bcd;font-size:13px">AI赛事赛道条件</label>
@@ -64,6 +64,12 @@
 <label style="color:#bcd;font-size:13px;margin:4px 0 8px">车辆损伤
 <input id="damageEnabled" type="checkbox" checked><span id="damageLabel">开启</span>
 </label>
+<label for="aeroMode" style="color:#bcd;font-size:13px">空气动力学配置</label>
+<select id="aeroMode">
+<option value="downforce">下压力优先</option>
+<option value="balanced" selected>适中</option>
+<option value="lowDrag">低阻力</option>
+</select>
 <label for="qualDuration" style="color:#bcd;font-size:13px">排位赛时长</label>
 <select id="qualDuration"><option value="300">5 分钟</option><option value="600">10 分钟</option><option value="1200">20 分钟</option><option value="1800">30 分钟</option></select>
 <label for="raceDuration" style="color:#bcd;font-size:13px">正赛时长</label>
@@ -90,11 +96,11 @@
 <h2>⌨ 控制说明</h2>
 <b>油门</b>：按住鼠标右键 + 向下拖拽<br>
 <b>刹车</b>：按住鼠标左键 + 向下拖拽<br>
-<b>转向</b>：A=左 · D=右（点按+20°快转；按住25°/s）<br>
-<b>保持/回正</b>：A+D=保持 · W=立即回正 · W+A/D=冻结 · 松开=20°/s自回正<br>
+<b>转向</b>：A=左 · D=右（持续转向 120°/s）<br>
+<b>保持/回正</b>：A+D=保持 · W=回中/冻结 · 松开=90°/s自回正<br>
 <b>TCS</b>：T键 0-5 共6档 · <b>ABS</b>：B键 0-5 共6档（触发时机相同，强度递增）<br>
 <b>关闭辅助</b>：TCS0/ABS0 时不再用电子辅助限制驱动/制动；纵横向轮胎力共享摩擦椭圆，过度使用会失去抓地<br>
-<b>调教</b>：Q键循环 稳定(轻推头)/均衡/敏捷(轻甩尾) —— 仅改悬挂与底盘<br>
+<b>底盘</b>：Q键循环稳定/均衡/灵活方案，改变弹簧、防倾杆及阻尼；菜单可选三种气动配置<br>
 <b>自动变速箱</b>：6前进挡按转速自动升挡；深踩油门会降挡，松油减速时也会自动降挡。停稳点按S切R档<br>
 <b>重置</b>：R键 · <b>菜单</b>：Esc<br>
 <b>关卡</b>：干地 / 雨天（μ降低+雨粒子，圈速分开记录）<br>
@@ -103,7 +109,7 @@
 <b>轮胎</b>：持续驾驶会磨损轮胎并降低抓地；菜单可关闭车辆损伤，不会关闭实体碰撞<br>
 <b>操作日志</b>：返回主菜单后可复制本场控制输入与车辆遥测；日志不是录像，不支持回放<br>
 <b>圈速</b>：无限圈；四轮完全出赛道=该圈不计最佳<br>
-<b>变速箱</b>：6速序列式自动 · 总传动比 [12.2/9.7/7.7/6.1/4.8/3.8] · 约8200rpm升挡 · 换挡短暂断扭/转速同步 · 深踩油门kickdown<br>
+<b>变速箱</b>：6速序列式自动 · 转速同步与换挡断扭 · 深踩油门在降挡后转速安全时kickdown<br>
 <button id="btnCtrlClose">关闭</button>
 </div>
 <div id="fs"><h1>¡META!</h1><p id="ft"></p><p id="fb"></p><button onclick="location.reload()">REINICIAR</button></div>
@@ -112,7 +118,10 @@
 <script src="./js/three-loader.js"></script>
 <script src="./js/ai-config.js"></script>
 <script src="./js/operation-log.js"></script>
+<script src="./js/track-course.js"></script>
 <script src="./js/vehicle-physics.js"></script>
-<script src="./js/game_modes.js?v=20261114-3"></script>
+<script src="./js/vehicle-transmission.js"></script>
+<script src="./js/vehicle-controls.js"></script>
+<script src="./js/game_modes.js?v=20261114-4"></script>
 </body>
 </html>

@@ -57,7 +57,12 @@ window.GameModules.createOperationLogger = function({
       sampleRateHz: 5,
       startedAt: new Date().toISOString(),
       clockStart: performanceRef.now(),
-      settings: { setup: state.setup, tcs: state.tcs, abs: state.abs },
+      settings: {
+        setup: state.setup,
+        aeroSetup: state.aeroSetup,
+        tcs: state.tcs,
+        abs: state.abs
+      },
       events: [],
       samples: []
     };

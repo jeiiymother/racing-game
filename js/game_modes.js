@@ -1,13 +1,8 @@
 const { loadThree, createOperationLogger } = window.GameModules;
 const { AI_ROSTER, AI_SKILLS, assignAISkills } = window.GameModules.ai;
-const {
-  computeAeroLoads,
-  computeAxleGrip,
-  computeLateralCapacity,
-  computeLateralWheelLoads,
-  computeLoadTransfer,
-  lateralTireForce
-} = window.GameModules.vehiclePhysics;
+const { aeroPresets, aerodynamics, suspension, tires } = window.GameModules.vehiclePhysics;
+const vehicleTransmission = window.GameModules.vehicleTransmission;
+const vehicleControls = window.GameModules.vehicleControls;
 
 function initGame(){
 document.getElementById('loading').style.display='none';
@@ -19,95 +14,13 @@ const cam=new THREE.PerspectiveCamera(78,innerWidth/innerHeight,0.1,8000);
 const keys={a:false,d:false,w:false,s:false,t:false,b:false,q:false};
 const ms={ld:false,rd:false,lp:null,rp:null,brk:0,thr:0};
 
-const TW=12,KW=2.4,RW=55,WALLD=TW+KW+RW;
-const CAR_HW=1.95*1.45/2, CAR_LEN=4.5*1.45;
-const CP=[
- [-334,-619],[10,-348],[-67,-24],[114,198],[85,275],[60,345],[95,405],[165,395],[205,335],
- [619,-167],[690,-306],[600,-444],[590,-516],[672,-510],[786,-474],
- [982,-382],[1038,-24],[1001,358],[677,462],[396,552],[336,636],[276,720],
- [72,702],[-144,732],[-200,510],[-619,191],[-1025,-95],[-996,-216],[-905,-334],
- [-762,-520],[-738,-634],[-524,-767]
-].map(p=>new THREE.Vector3(p[0],0,p[1]));
-const curve=new THREE.CatmullRomCurve3(CP,true,'catmullrom',0.5);
-const NW=3600,wp=[],WP_SP=curve.getLength()/NW;
-for(let i=0;i<NW;i++)wp.push(curve.getPointAt(i/NW));
-const scA=new Float32Array(NW);
-for(let i=0;i<NW;i++){const t1=curve.getTangentAt(i/NW),t2=curve.getTangentAt(((i+10)%NW)/NW);scA[i]=Math.atan2(t1.x*t2.z-t1.z*t2.x,t1.dot(t2));}
-for(let k=0;k<6;k++)for(let i=0;i<NW;i++)scA[i]=(scA[(i-1+NW)%NW]+scA[i]*2+scA[(i+1)%NW])/4;
-let scMax=1e-6;for(let i=0;i<NW;i++)scMax=Math.max(scMax,Math.abs(scA[i]));
-const Rad=new Float32Array(NW),ins=new Int8Array(NW);
-for(let i=0;i<NW;i++){const kap=Math.abs(scA[i])/(10*WP_SP);Rad[i]=1/Math.max(kap,1e-5);ins[i]=scA[i]>0?1:-1;}
-for(let k=0;k<3;k++)for(let i=0;i<NW;i++)Rad[i]=Math.min(Rad[i],Rad[(i-1+NW)%NW],Rad[(i+1)%NW]);
-const prox=new Float32Array(NW),sNear=new Int8Array(NW);
-for(let i=0;i<NW;i++){
-  let best=1e9,bj=0;
-  for(let j=0;j<NW;j+=4){
-    const dd=Math.abs(i-j),wd=Math.min(dd,NW-dd);
-    if(wd<250)continue;
-    const d2=Math.hypot(wp[i].x-wp[j].x,wp[i].z-wp[j].z);
-    if(d2<best){best=d2;bj=j;}
-  }
-  prox[i]=best;
-  const t1=curve.getTangentAt(i/NW);
-  sNear[i]=((wp[bj].x-wp[i].x)*(-t1.z)+(wp[bj].z-wp[i].z)*(t1.x))>=0?1:-1;
-}
-for(let k=0;k<2;k++)for(let i=0;i<NW;i++)prox[i]=Math.min(prox[i],prox[(i-4+NW)%NW],prox[(i+4)%NW]);
-function isOpen(i,s){
-  if(s===sNear[i]&&prox[i]<WALLD+TW+4)return true;
-  if(s===ins[i]&&Rad[i]<TW+KW+10)return true;
-  return false;
-}
-function limAt(i,s){
-  if(isOpen(i,s))return 400;
-  if(s===ins[i])return Math.min(WALLD,Math.max(TW+KW+CAR_LEN*0.45+3.6,Rad[i]*0.85));
-  return WALLD;
-}
-function makeRibbon(wFn,y,opts){
-  const S=1100,pos=[],col=[],idx=[];
-  for(let i=0;i<=S;i++){
-    const t=(i/S)%1,ci=Math.floor(t*NW)%NW;
-    const p=curve.getPointAt(t),tn=curve.getTangentAt(t).normalize(),n=new THREE.Vector3(-tn.z,0,tn.x);
-    const a=wFn(ci,-1),b=wFn(ci,1);
-    pos.push(p.x+n.x*a,p.y+y,p.z+n.z*a, p.x+n.x*b,p.y+y,p.z+n.z*b);
-    if(opts&&opts.vcol){const k=Math.min(1,Math.abs(scA[ci])/(scMax*0.5));const c=opts.vcol(k,ci);col.push(c[0],c[1],c[2],c[0],c[1],c[2]);}
-  }
-  for(let i=0;i<S;i++){const a=i*2,b=a+1,c=(i+1)*2,d=c+1;idx.push(a,c,b,b,c,d);}
-  const g=new THREE.BufferGeometry();
-  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
-  g.setIndex(idx);
-  if(opts&&opts.vcol)g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
-  g.computeVertexNormals();
-  const mat=opts.vcol?new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide}):new THREE.MeshBasicMaterial({color:opts.color,side:THREE.DoubleSide});
-  const mesh=new THREE.Mesh(g,mat);scene.add(mesh);return mat;
-}
-let gndMat,trackMat;
-function buildTrack(){
-  gndMat=new THREE.MeshBasicMaterial({color:0x47823a});
-  const gnd=new THREE.Mesh(new THREE.PlaneGeometry(20000,20000),gndMat);
-  gnd.rotation.x=-Math.PI/2;gnd.position.y=-0.9;scene.add(gnd);
-  trackMat=makeRibbon((i,s)=>s*TW,0.0,{color:0x565a5c});
-  const kerbCol=(k,ci)=>{const w=Math.floor(ci/45)%2===0;return w?[0.88,0.88,0.88]:[0.10,0.10,0.10];};
-  makeRibbon((i,s)=>s<0?-(TW+KW):-TW,0.05,{vcol:kerbCol});
-  makeRibbon((i,s)=>s<0?TW:(TW+KW),0.05,{vcol:kerbCol});
-  makeRibbon((i,s)=>s*1.7,0.09,{vcol:k=>{const v=0.30+(0.10-0.30)*k;return[v,v,v];}});
-  const spacing=curve.getLength()/1100*2+0.6;
-  const wg=new THREE.BoxGeometry(1.0,1.5,spacing),wm=new THREE.MeshBasicMaterial({color:0x8a2f23}),wm2=new THREE.MeshBasicMaterial({color:0xdddddd});
-  const S=1100;
-  for(let s=-1;s<=1;s+=2)for(let i=0;i<S;i+=2){
-    const ci=Math.floor((i/S)*NW)%NW;
-    if(isOpen(ci,s))continue;
-    const bo=limAt(ci,s);
-    const t=(i/S)%1,p=curve.getPointAt(t),tn=curve.getTangentAt(t).normalize(),n=new THREE.Vector3(-tn.z,0,tn.x);
-    const w=new THREE.Mesh(wg,(Math.floor(i/8)%2===0)?wm:wm2);
-    w.position.set(p.x+n.x*s*bo,0.7,p.z+n.z*s*bo);w.rotation.y=Math.atan2(tn.x,tn.z);scene.add(w);
-  }
-  const sp=curve.getPointAt(0),st=curve.getTangentAt(0).normalize();
-  const lc=document.createElement('canvas');lc.width=128;lc.height=32;const lx=lc.getContext('2d');
-  for(let x=0;x<16;x++)for(let y=0;y<4;y++){lx.fillStyle=(x+y)%2===0?'#fff':'#000';lx.fillRect(x*8,y*8,8,8);}
-  const lm=new THREE.Mesh(new THREE.PlaneGeometry(TW*2,3),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(lc),side:THREE.DoubleSide}));
-  lm.rotation.x=-Math.PI/2;lm.position.set(sp.x,0.09,sp.z);lm.rotation.z=-Math.atan2(st.x,st.z);scene.add(lm);
-}
-buildTrack();
+const trackCourse=window.GameModules.createTrackCourse(THREE,scene,{
+  trackWidth:12,kerbWidth:2.4,runoffWidth:55,carWidth:1.95*1.45,carLength:4.5*1.45
+});
+const {
+  TW,KW,RW,WALLD,CAR_HW,CAR_LEN,CP,curve,NW,wp,WP_SP,scA,scMax,Rad,ins,prox,sNear,
+  isOpen,limAt,nearest,trackLength,gndMat,trackMat
+}=trackCourse;
 
 // ===== SKID MARKS =====
 const MAXSEG=2600;
@@ -174,26 +87,37 @@ function makeGate(idx){
 }
 makeGate(420);
 
-function nearest(pos,hint){
-  let md=1e9,cp=null,mi=hint;const rng=420,st=(hint-rng+NW)%NW;
-  for(let i=0;i<rng*2;i++){const j=(st+i)%NW,p=wp[j],d=Math.hypot(pos.x-p.x,pos.z-p.z);if(d<md){md=d;cp=p;mi=j;}}
-  return{d:md,p:cp,i:mi};
-}
-
 // ===== SIM v6.1 =====
 const D2R=Math.PI/180;
-const MASS=1230, IZ=MASS*(CAR_LEN*CAR_LEN+CAR_HW*CAR_HW*4)/12, WB=2.8, LF=1.35, LR=1.45, CGH=0.35;
-const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.08, REFERENCE_WHEEL_LOAD=MASS*9.81*0.485/2;
+const MASS=1230, WB=2.8, LF=1.35, LR=1.45, CGH=0.35;
+const YAW_INERTIA=MASS*(4.5*4.5+1.95*1.95)/12;
+const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.10, REFERENCE_WHEEL_LOAD=3000;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
 const ROLL=0.013, MAXSPD=78;
-const RHO=1.225, CLS=2.6, CDA=0.95, IND=0.05, DF_F=0.42;
+const AERO_CONFIG={
+  airDensity:1.225,downforceArea:2.6,dragArea:0.95,referenceArea:2.2,
+  inducedDrag:0.045,frontShare:0.42,preset:aeroPresets.balanced
+};
+let AERO_MODE='balanced';
+const SUSPENSION_INPUT={
+  mass:MASS,unsprungMass:38,frontAxleDistance:LF,rearAxleDistance:LR,
+  trackWidth:TRACK_WIDTH,cgHeight:CGH
+};
+const suspensionState=suspension.createState();
+const TRANSMISSION_CONFIG={
+  gearRatios:[2.90,2.10,1.63,1.34,1.12,0.91],finalDrive:4.15,reverseRatio:3.10,
+  wheelRadius:0.33,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:4800,
+  maximumDownshiftRpm:8150,kickdownRpm:6200,kickdownThrottle:0.85,
+  shiftDuration:0.14,torqueCutFraction:0.48,torqueRecoveryFraction:0.28
+};
+const STEERING_CONFIG={
+  maximumAngle:360*D2R,turnRateDegrees:120,returnRateDegrees:90
+};
 const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
 const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
-const SMAX=360*D2R,MWA=30*D2R,SR=12,SHOLD=25*D2R,SRET=20*D2R,B0=5*D2R,B1=20*D2R;
-const WHEEL_R=0.33, K_RPM=60/(2*Math.PI*WHEEL_R), IDLE=1500, REDLINE=8500;
-const GTOT=[12.2,9.7,7.7,6.1,4.8,3.8];
-const G_REV=4.2, REV_FORCE=4000, REV_MAXV=5.5;
-const AUTO_SHIFT_UP_RPM=8200, AUTO_SHIFT_DOWNSHIFT_RPM=5200, AUTO_SHIFT_KICKDOWN_RPM=6500;
+const SMAX=360*D2R,MWA=30*D2R,SR=12;
+const WHEEL_R=0.33, IDLE=1500, REDLINE=8500;
+const REV_FORCE=4000, REV_MAXV=5.5;
 const TPEAK=560, PPEAK=430000, EB_TQ=70;
 const TCS_FRAC=[1.0,0.94,0.87,0.79,0.71,0.62];
 const TCS_CUT =[0.0,0.20,0.35,0.50,0.65,0.80];
@@ -203,25 +127,32 @@ let TCS_LVL=2, ABS_LVL=3, WET=false;
 const D2RAD=D2R;
 const SETUPS=[
  {tag:'ST',name:'🛡 STABLE 轻微转向不足',
-  FS_F:0.500, CF:128000, CR:136000, REAR_MU_F:1.00, SPIN_GAIN:0.12,
-  REL_F:1.35, REL_R:1.05, TOE_F:0.10*D2RAD, TOE_R:0.18*D2RAD,
-  CAM_F:-2.4, CAM_R:-2.8, RCF:48, RCR:112, tF:0.58, DMP:14},
+  CF:128000, CR:136000, REL_F:0.45, REL_R:0.55,
+  TOE_F:0.10*D2RAD, TOE_R:0.18*D2RAD,CAM_F:-2.4, CAM_R:-2.8,
+  springFront:100000,springRear:108000,damperFront:8200,damperRear:9200,
+  antiRollFront:26000,antiRollRear:20000,antiRollDamping:1300},
  {tag:'BA',name:'⚖ BALANCED 适中',
-  FS_F:0.485, CF:135000, CR:130000, REAR_MU_F:0.97, SPIN_GAIN:0.22,
-  REL_F:1.10, REL_R:1.30, TOE_F:-0.05*D2RAD, TOE_R:0.10*D2RAD,
-  CAM_F:-3.0, CAM_R:-2.0, RCF:60, RCR:90, tF:0.52, DMP:12},
+  CF:135000, CR:130000, REL_F:0.45, REL_R:0.55,
+  TOE_F:-0.05*D2RAD, TOE_R:0.10*D2RAD,CAM_F:-3.0, CAM_R:-2.0,
+  springFront:95000,springRear:105000,damperFront:7800,damperRear:8600,
+  antiRollFront:22000,antiRollRear:22000,antiRollDamping:1200},
  {tag:'AG',name:'🔥 AGILE 轻微转向过度',
-  FS_F:0.470, CF:140000, CR:124000, REAR_MU_F:0.93, SPIN_GAIN:0.34,
-  REL_F:0.95, REL_R:1.45, TOE_F:-0.12*D2RAD, TOE_R:0.04*D2RAD,
-  CAM_F:-3.5, CAM_R:-1.5, RCF:74, RCR:80, tF:0.46, DMP:10}
+  CF:140000, CR:124000, REL_F:0.45, REL_R:0.55,
+  TOE_F:-0.12*D2RAD, TOE_R:0.04*D2RAD,CAM_F:-3.5, CAM_R:-1.5,
+  springFront:90000,springRear:112000,damperFront:7400,damperRear:9600,
+  antiRollFront:16000,antiRollRear:32000,antiRollDamping:1200}
 ];
 SETUPS.forEach(s=>{
-  s.mF=(1-0.5*(s.tF-0.52))*(1+(-s.CAM_F-3.0)*0.025)*(1-(s.RCF-60)*0.0006);
-  s.mR=(1+0.5*(s.tF-0.52))*(1+(-s.CAM_R-2.0)*0.025)*(1-(s.RCR-90)*0.0008);
-  s.rollGain=0.028*150/(s.RCF+s.RCR);
-  s.tau=0.02+s.DMP*0.004;
+  s.frontShare=0.485;
+  s.camberGripFront=Math.max(0.9,Math.min(1,1-0.012*(s.CAM_F+2.5)**2));
+  s.camberGripRear=Math.max(0.9,Math.min(1,1-0.012*(s.CAM_R+2.5)**2));
 });
 let SU_IDX=1, SU=SETUPS[1];
+function selectAeroMode(mode){
+  if(!Object.prototype.hasOwnProperty.call(aeroPresets,mode))throw new Error(`Unknown aero preset: ${mode}`);
+  AERO_MODE=mode;AERO_CONFIG.preset=aeroPresets[mode];
+  document.getElementById('aeroMode').value=mode;
+}
 function applySetup(i){
   SU_IDX=(i+3)%3;SU=SETUPS[SU_IDX];
   document.querySelectorAll('.scard').forEach((el,k)=>el.classList.toggle('sel',k===SU_IDX));
@@ -287,7 +218,6 @@ const aiDrivers=AI_ROSTER.map((driver,index)=>({
   lateralVelocity:0,yawAngle:0,yawRate:0,damage:0,tireWear:100,mistakeTime:0,mistakeSide:1,
   finished:false,attacking:false,started:false,startAt:0,raceStarted:false
 }));
-const trackLength=curve.getLength();
 let bestDry=0,bestWet=0;
 try{bestDry=parseFloat(localStorage.getItem('silv2_best')||'0')||0;bestWet=parseFloat(localStorage.getItem('silv2_best_wet')||'0')||0;}catch(e){}
 function curBest(){return WET?bestWet:bestDry;}
@@ -304,7 +234,7 @@ function qualifyingStartOffset(index){return (index+1)*QUALIFYING_START_INTERVAL
 let tutPhase='pages',tutPage=0,tutTime=0,tutPassed=false;
 const operationLogger=createOperationLogger({
   getState:()=>({
-    wet:WET,damageEnabled:DAMAGE_ENABLED,setup:SU.tag,tcs:TCS_LVL,abs:ABS_LVL,
+    wet:WET,damageEnabled:DAMAGE_ENABLED,setup:SU.tag,aeroSetup:AERO_MODE,tcs:TCS_LVL,abs:ABS_LVL,
     car,vehicleState:u,mouse:ms,playerBest:eventPlayerBest,previousLap:prevLap,
     playerDamage:eventPlayerDamage,eventLaps
   }),
@@ -334,11 +264,12 @@ function resetCar(){
   u.heading=Math.atan2(t0.x,t0.z);
   u.wpi=25;u.lap=1;
   u.vf=0;u.vl=0;u.yaw=0;u.steer=0;u.latG=0;u.slipR=0;u.surf='track';u.prevSurf='track';
-  u._satS=0;u._aLon=0;u._ay=0;u._ar=0;u._dN=0;u._FyF=0;u._FyR=0;u._tc=false;
-  u._lockF=0;u._lockR=0;u._impact=0;u._blipT=0;u._dPrev=0;u._aero=0;
-  u._rollV=0;u._pitchV=0;
+  u._satS=0;u._aLon=0;u._ay=0;u._ar=0;u._FyF=0;u._FyR=0;u._tc=false;
+  u._lockF=0;u._lockR=0;u._wheelOmegaF=0;u._wheelOmegaR=0;u._wheelSlipF=0;u._wheelSlipR=0;
+  u._impact=0;u._dPrev=0;u._aero=0;
   u.tireWear=100;
-  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftStartRpm=IDLE;
+  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftStartRpm=IDLE;u._shiftTorqueFactor=1;
+  Object.assign(suspensionState,suspension.createState());
   u.lapValid=true;u._wallT=0;
   car.rotation.set(0,u.heading,0);chassis.rotation.set(0,0,0);chassis.position.y=0;
   elapsed=0;timerOn=false;lapStart=0;prevLap=0;prevValid=true;
@@ -350,7 +281,7 @@ function resetCar(){
 setLevel(false);applySetup(1);resetCar();
 
 const PAGES=[
- {t:'🎮 油门',d:`<span class="key">鼠标右键</span> 按住并<b>向下拖拽</b> = 油门。<br>· 6速<b>自动变速箱</b>：约8200rpm升挡，减速降挡，深踩油门触发kickdown。<br>· <b>TCS</b>（T键 0-5档）：0=全关，后轮可完全打滑。<br><b>→ 试试：右键拖拽加油到 80 km/h。</b>`},
+ {t:'🎮 油门',d:`<span class="key">鼠标右键</span> 按住并<b>向下拖拽</b> = 油门。<br>· 6速<b>序列式自动变速箱</b>：按发动机转速换挡，降挡受超转保护。<br>· <b>TCS</b>（T键 0-5档）：0=全关，后轮可完全打滑。<br><b>→ 试试：右键拖拽加油到 80 km/h。</b>`},
  {t:'🛑 刹车',d:`<span class="key">鼠标左键</span> 按住并<b>向下拖拽</b> = 刹车。<br>· <b>ABS</b>（B键 0-5档）：0=全关，重刹会抱死🔒丧失部分转向。<br>· 刹车载荷前移+下压力加成→高速制动更强。<br><b>→ 试试：150 km/h 刹停。</b>`},
  {t:'🎯 转向/调教/规则',d:`<span class="key">A</span>=左 · <span class="key">D</span>=右 · <span class="key">W</span>=回正/冻结 · <span class="key">Q</span>=切换调教方案。<br>· 三方案(仅悬挂/底盘)：🛡轻推头 / ⚖均衡 / 🔥轻甩尾。<br>· <b style="color:#f66">四轮完全出赛道=该圈不计最佳；无限圈。</b><br>· 菜单可选<b>雨天关卡</b>。<br><b>→ 试试：A/D 转向，Q 换调教感受差异。</b>`}
 ];
@@ -763,10 +694,10 @@ addEventListener('keydown',e=>{
   }
   if(mode==='menu')return;
   if(!e.repeat)logAction('key-down',{key:k});
-  if(k==='a'&&!keys.a){keys.a=true;if(!keys.d&&!keys.w)u.steer+=Math.abs(u.steer)>2*D2R?B1:B0;}
-  if(k==='d'&&!keys.d){keys.d=true;if(!keys.a&&!keys.w)u.steer-=Math.abs(u.steer)>2*D2R?B1:B0;}
+  if(k==='a')keys.a=true;
+  if(k==='d')keys.d=true;
   if(k==='w'&&!keys.w){keys.w=true;if(!keys.a&&!keys.d)u.steer=0;}
-  if(k==='s'&&!keys.s){keys.s=true;if(Math.abs(u.vf)<0.8&&u.shiftT<=0){u.gear=(u.gear===0)?1:0;u.shiftT=0.35;}}
+  if(k==='s'&&!keys.s){keys.s=true;if(Math.abs(u.vf)<0.8&&u.shiftT<=0)vehicleTransmission.requestGear(u,u.gear===0?1:0,TRANSMISSION_CONFIG);}
   if(k==='t'&&!keys.t){keys.t=true;TCS_LVL=(TCS_LVL+1)%6;}
   if(k==='b'&&!keys.b){keys.b=true;ABS_LVL=(ABS_LVL+1)%6;}
   if(k==='q'&&!keys.q){keys.q=true;applySetup(SU_IDX+1);}
@@ -789,6 +720,10 @@ document.getElementById('btnExportLog').onclick=()=>exportLatestOperationLog();
 document.getElementById('damageEnabled').addEventListener('change',e=>{
   document.getElementById('damageLabel').textContent=e.target.checked?'开启':'关闭';
 });
+document.getElementById('aeroMode').addEventListener('change',e=>{
+  selectAeroMode(e.target.value);
+  logAction('aero-setup-change',{setup:AERO_MODE});
+});
 document.getElementById('resultAction').onclick=()=>{
   if(eventMode==='weekend'&&eventStage==='qualifying')beginEvent('weekend',true);
   else openMenu();
@@ -804,51 +739,20 @@ document.getElementById('cgBtn').onclick=openMenu;
 document.getElementById('tutPrev').onclick=()=>{if(tutPage>0){tutPage--;renderPage();}};
 document.getElementById('tutNext').onclick=()=>{if(tutPage<PAGES.length-1){tutPage++;renderPage();}else startGatePhase();};
 
-function gearRatio(){return u.gear===0?G_REV:GTOT[u.gear-1];}
-function startGearShift(nextGear,duration,blip=false){
-  u.shiftStartRpm=u.rpm;
-  u.shiftElapsed=0;
-  u.shiftDuration=duration;
-  u.shiftT=duration;
-  u.gear=nextGear;
-  if(blip)u._blipT=0.15;
-}
+function gearRatio(){return vehicleTransmission.ratioForGear(u.gear,TRANSMISSION_CONFIG);}
 function gearbox(dt){
-  const v=Math.abs(u.vf);
-  const coupledRpm=Math.max(IDLE,v*K_RPM*gearRatio());
-  if(u.shiftT>0){
-    u.shiftElapsed=Math.min(u.shiftDuration,u.shiftElapsed+dt);
-    const shiftProgress=u.shiftDuration?u.shiftElapsed/u.shiftDuration:1;
-    u.rpm=u.shiftStartRpm+(coupledRpm-u.shiftStartRpm)*shiftProgress;
-    u.shiftT=Math.max(0,u.shiftDuration-u.shiftElapsed);
-    return;
-  }
-  u.rpm=coupledRpm;
-  if(u.gear===0)return;
-  if(u.gear<6&&u.rpm>=AUTO_SHIFT_UP_RPM){
-    startGearShift(u.gear+1,0.20);
-    return;
-  }
-  if(u.gear>1){
-    const rpmLow=v*K_RPM*GTOT[u.gear-2];
-    const safeDownshift=rpmLow<REDLINE-350;
-    const kickdown=ms.thr>0.85&&u.rpm<7600
-      &&rpmLow>=AUTO_SHIFT_KICKDOWN_RPM&&safeDownshift;
-    if(safeDownshift&&(u.rpm<AUTO_SHIFT_DOWNSHIFT_RPM||kickdown)){
-      startGearShift(u.gear-1,0.18,true);
-    }
-  }
+  vehicleTransmission.update(u,dt,u._wheelOmegaR*WHEEL_R,ms.thr,TRANSMISSION_CONFIG);
 }
 function driveForce(){
-  if(u.shiftT>0||ms.thr<=0)return 0;
+  if(u._shiftTorqueFactor<=0||ms.thr<=0)return 0;
   if(eventActive&&eventStage==='race'&&raceStartState==='formation'
     &&u.vf>=formationTargetSpeed('PLAYER',racePlayerProgress))return 0;
   if(u.rpm>REDLINE+120)return 0;
   const gr=gearRatio();
-  const fT=TPEAK*torqueN(u.rpm)*gr/WHEEL_R;
-  const fP=PPEAK*pN(u.rpm)/Math.max(Math.abs(u.vf),3);
+  const fT=TPEAK*torqueN(u.rpm)*gr/WHEEL_R*0.9;
+  const fP=PPEAK*pN(u.rpm)*0.9/Math.max(Math.abs(u.vf),3);
   const damageFactor=eventActive&&DAMAGE_ENABLED?Math.max(0.65,1-eventPlayerDamage*0.35):1;
-  const F=Math.min(fT,fP)*damageFactor;
+  const F=Math.min(fT,fP)*damageFactor*u._shiftTorqueFactor;
   if(u.gear===0){
     if(u.vf>-REV_MAXV)return -Math.min(REV_FORCE,F)*ms.thr;
     return 0;
@@ -856,8 +760,8 @@ function driveForce(){
   return F*ms.thr;
 }
 function engineBrake(){
-  if(u.shiftT>0||ms.thr>0||Math.abs(u.vf)<1)return 0;
-  return -Math.sign(u.vf)*EB_TQ*gearRatio()/WHEEL_R;
+  if(u._shiftTorqueFactor<=0||ms.thr>0||Math.abs(u.vf)<1)return 0;
+  return -Math.sign(u.vf)*EB_TQ*gearRatio()/WHEEL_R*0.9*u._shiftTorqueFactor;
 }
 
 function step(H,now){
@@ -885,72 +789,86 @@ function step(H,now){
   let vf=u.vf,vl=u.vl,r=u.yaw;
   const v=Math.abs(vf);
   const vT=Math.hypot(vf,vl);
-  const sb=clamp(vf/1.5,-1,1),sr=clamp(vf/0.5,-1,1);
-  const q=0.5*RHO*vT*vT;
-  const aero=computeAeroLoads(vT,RHO,CLS,DF_F,WET?0.9:1);
-  const dfAdd=aero.total;
-  const dragF=q*CDA+q*CLS*IND;
-  u._aero=dfAdd;
-  const dNt=computeLoadTransfer(MASS,u._aLon,CGH,WB);
-  u._dN+=(dNt-u._dN)*Math.min(1,14*H);
-  const dN=u._dN;
-  const Nf0=MASS*9.81*SU.FS_F,Nr0=MASS*9.81*(1-SU.FS_F);
-  const Nf=Math.max(500,Nf0-dN+aero.front);
-  const Nr=Math.max(500,Nr0+dN+aero.rear);
-  const frontRollShare=SU.RCF/(SU.RCF+SU.RCR);
-  const lateralTransfer=computeLoadTransfer(MASS,u._ay,CGH,TRACK_WIDTH);
-  const frontWheelLoads=computeLateralWheelLoads(Nf,lateralTransfer*frontRollShare);
-  const rearWheelLoads=computeLateralWheelLoads(Nr,lateralTransfer*(1-frontRollShare));
-  const muF=mu*SU.mF;
-  const muR=mu*SU.REAR_MU_F*SU.mR;
-  const capFLong=computeAxleGrip(frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
-  const capRLong=computeAxleGrip(rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
-  let FxF=0,FxR=driveForce();
-  if(FxR>0){
-    const cap=capRLong*TCS_FRAC[TCS_LVL];
-    if(FxR>cap){FxR=cap;u._tc=true;}else u._tc=false;
-    if(TCS_LVL>0&&u._lockR>0.35)FxR*=(1-TCS_CUT[TCS_LVL]*Math.min(1,u._lockR));
-  }else if(FxR<0){
-    const capR0=capRLong*0.6;
-    if(FxR<-capR0)FxR=-capR0;
-    u._tc=false;
-  }else u._tc=false;
-  FxR+=engineBrake();
+  const sr=clamp(vf/0.5,-1,1);
+  const aero=aerodynamics.compute(vT,AERO_CONFIG);
+  const dragF=aero.drag;
+  u._aero=aero.total;
+  const wheelLoads=suspension.step(suspensionState,{
+    ...SUSPENSION_INPUT,aero,longitudinalAcceleration:u._aLon,lateralAcceleration:u._ay
+  },H,SU);
+  const frontWheelLoads=wheelLoads.front;
+  const rearWheelLoads=wheelLoads.rear;
+  const muF=mu*SU.camberGripFront;
+  const muR=mu*SU.camberGripRear;
+  const capFLong=tires.computeAxleGrip(frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
+  const capRLong=tires.computeAxleGrip(rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY);
+  let driveDemand=driveForce();
+  const driveLimit=capRLong*TCS_FRAC[TCS_LVL];
+  if(TCS_LVL>0&&driveDemand>driveLimit){driveDemand=driveLimit;u._tc=true;}
+  else u._tc=false;
+  if(TCS_LVL>0&&driveDemand>0&&u._lockR>0.35){
+    driveDemand*=(1-TCS_CUT[TCS_LVL]*Math.min(1,u._lockR));
+    u._tc=true;
+  }
   let brkIn=ms.brk;
   if(eventActive&&eventStage==='race'&&raceStartState==='formation'){
     const targetSpeed=formationTargetSpeed('PLAYER',racePlayerProgress);
     if(u.vf>targetSpeed)brkIn=Math.max(brkIn,clamp((u.vf-targetSpeed)*0.12,0,0.65));
   }
   if(ABS_LVL>0&&u._lockF>0.3)brkIn*=(1-ABS_CUT[ABS_LVL]*Math.min(1,u._lockF));
-  if(brkIn>0){const B=MAXBRK*brkIn;FxF-=B*BRK_BIAS_F*sb;FxR-=B*(1-BRK_BIAS_F)*sb;}
-  FxF=clamp(FxF,-capFLong,capFLong);
-  FxR=clamp(FxR,-capRLong,capRLong);
-  u._lockF+=(((brkIn>0&&Math.abs(FxF)>0.95*capFLong)?1:0)-u._lockF)*Math.min(1,25*H);
-  u._lockR+=(((ms.thr>0&&FxR>0.95*capRLong)?1:0)-u._lockR)*Math.min(1,25*H);
+  const frontWheelSpeed=vf*Math.cos(wa)+(vl+r*LF)*Math.sin(wa);
+  const slipF=(u._wheelOmegaF*WHEEL_R-frontWheelSpeed)/Math.max(Math.abs(frontWheelSpeed),1);
+  const slipR=(u._wheelOmegaR*WHEEL_R-vf)/Math.max(Math.abs(vf),1);
+  const brakeForce=MAXBRK*brkIn;
+  const frontDriveTorque=0;
+  const rearDriveTorque=(driveDemand+engineBrake())*WHEEL_R/2;
+  const frontBrakeTorque=brakeForce*BRK_BIAS_F*WHEEL_R/2;
+  const rearBrakeTorque=brakeForce*(1-BRK_BIAS_F)*WHEEL_R/2;
+  const tireStiffnessF=CF_WET(WET?0.85:1,SU.CF);
+  const tireStiffnessR=CR_WET(WET?0.85:1,SU.CR);
+  const FxF=tires.computeAxleLongitudinalForce(
+    slipF,frontWheelLoads,muF,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY,tireStiffnessF
+  );
+  const FxR=tires.computeAxleLongitudinalForce(
+    slipR,rearWheelLoads,muR,REFERENCE_WHEEL_LOAD,TIRE_LOAD_SENSITIVITY,tireStiffnessR
+  );
+  const wheelInertia=1.2;
+  const brakeSignF=Math.sign(u._wheelOmegaF||frontWheelSpeed);
+  const brakeSignR=Math.sign(u._wheelOmegaR||vf);
+  u._wheelOmegaF+=(
+    frontDriveTorque-frontBrakeTorque*brakeSignF-FxF*WHEEL_R
+  )/wheelInertia*H;
+  u._wheelOmegaR+=(
+    rearDriveTorque-rearBrakeTorque*brakeSignR-FxR*WHEEL_R
+  )/wheelInertia*H;
+  if(brakeForce>0&&u._wheelOmegaF*frontWheelSpeed<0)u._wheelOmegaF=0;
+  if(brakeForce>0&&u._wheelOmegaR*vf<0)u._wheelOmegaR=0;
+  u._wheelSlipF=slipF;u._wheelSlipR=slipR;
+  const lockTarget=brkIn>0?clamp((-slipF-0.08)/0.18,0,1):0;
+  const spinTarget=driveDemand>0?clamp((slipR-0.08)/0.22,0,1):0;
+  u._lockF+=(lockTarget-u._lockF)*Math.min(1,25*H);
+  u._lockR+=(spinTarget-u._lockR)*Math.min(1,25*H);
   const fade=clamp(vT/2,0,1);
   // FIX: toe bias scaled by fade => no constant pull at standstill/low speed
   const af=(Math.atan2(vl+r*LF,Math.max(vf,0.8)) - wa + SU.TOE_F)*fade;
   const ar=(Math.atan2(vl-r*LR,Math.max(vf,0.8)) - SU.TOE_R*0.6)*fade;
-  const capF=computeLateralCapacity(capFLong,FxF);
-  const capR=computeLateralCapacity(capRLong,FxR);
+  const capF=tires.computeLateralCapacity(capFLong,FxF);
+  const capR=tires.computeLateralCapacity(capRLong,FxR);
   const CW=WET?0.85:1;
-  const FyFt=lateralTireForce(af,capF,CF_WET(CW,SU.CF));
-  const FyRt=lateralTireForce(ar,capR,CR_WET(CW,SU.CR));
-  const aF=1-Math.exp(-(vT/SU.REL_F+10)*H),aR=1-Math.exp(-(vT/SU.REL_R+10)*H);
+  const FyFt=tires.lateralTireForce(af,capF,CF_WET(CW,SU.CF));
+  const FyRt=tires.lateralTireForce(ar,capR,CR_WET(CW,SU.CR));
+  const aF=1-Math.exp(-Math.max(vT,1)/SU.REL_F*H);
+  const aR=1-Math.exp(-Math.max(vT,1)/SU.REL_R*H);
   u._FyF+=(FyFt-u._FyF)*aF;
   u._FyR+=(FyRt-u._FyR)*aR;
   const FyF=u._FyF,FyR=u._FyR;
-  // FIX: satR dead-zone on rear slip angle => spin aid only on genuine breakaway
+  // Rear-axle saturation feeds wear and skid-mark state without adding artificial yaw torque.
   const satR=clamp((Math.abs(SU.CR*ar)-capR)/(capR*0.5+1),0,1)*clamp((Math.abs(ar)-0.03)/0.05,0,1);
   u._satS+=(satR-u._satS)*Math.min(1,10*H);
   const ay=(FyF*Math.cos(wa)+FyR)/MASS;
   const vSafe=Math.max(vT,1);
   const ax=(FxF+FxR)/MASS - dragF*(vf/vSafe)/MASS - ROLL*9.81*sr - dragK*vf;
-  let rdot=(LF*FyF*Math.cos(wa)-LR*FyR)/IZ;
-  if(u._satS>0.15&&v>14){
-    const sgn=clamp(ar/0.08,-1,1);
-    rdot+=sgn*SU.SPIN_GAIN*u._satS*Math.min(1,(v-14)/20);
-  }
+  let rdot=(LF*FyF*Math.cos(wa)-LR*FyR)/YAW_INERTIA;
   vf+=(ax+vl*r)*H;
   vl+=(ay-vf*r)*H;
   vl-=dragF*(vl/vSafe)/MASS*H;
@@ -997,12 +915,7 @@ function step(H,now){
 function CF_WET(cw,c){return c*cw;}
 function CR_WET(cw,c){return c*cw;}
 function updPlayer(dt,now){
-  if(keys.w){}
-  else if(keys.a&&keys.d){}
-  else if(keys.a)u.steer+=SHOLD*dt;
-  else if(keys.d)u.steer-=SHOLD*dt;
-  else{if(Math.abs(u.steer)<SRET*dt)u.steer=0;else u.steer-=Math.sign(u.steer)*SRET*dt;}
-  u.steer=clamp(u.steer,-SMAX,SMAX);
+  u.steer=vehicleControls.stepSteering(u.steer,keys,dt,STEERING_CONFIG);
   u.pv.forEach(p=>p.rotation.y=clamp(u.steer/SR,-MWA,MWA));
   gearbox(dt);
   acc+=dt;const H=1/240;let n=0;
@@ -1011,17 +924,11 @@ function updPlayer(dt,now){
   u.latG=Math.abs(u._ay)/9.81;
   u.slipR=Math.abs(u._ar)/D2R;
   if(u._wallT>0)u._wallT-=dt;
-  if(u._blipT>0)u._blipT-=dt;
   if(u._impact>0)u._impact=Math.max(0,u._impact-dt*2.2);
   car.rotation.y=u.heading;
-  const rollT=clamp(-u._ay*SU.rollGain,-0.11,0.11);
-  const pitchT=clamp(u._aLon*0.016,-0.07,0.06);
-  const kR=Math.min(1,dt/SU.tau);
-  u._rollV+=(rollT-u._rollV)*kR;
-  u._pitchV+=(pitchT-u._pitchV)*kR;
-  chassis.rotation.z=u._rollV;
-  chassis.rotation.x=u._pitchV;
-  chassis.position.y=clamp(-(Math.abs(u._ay)+Math.abs(u._aLon))*0.004,-0.05,0);
+  chassis.rotation.z=clamp(suspensionState.roll,-0.11,0.11);
+  chassis.rotation.x=clamp(suspensionState.pitch,-0.07,0.06);
+  chassis.position.y=clamp(-suspensionState.heave,-0.12,0);
   updMarks();
 }
 let acc=0;
@@ -1060,13 +967,12 @@ function hud(){
   lE.style.color=u.lapValid?'#fff':'#f66';
   spE.innerHTML=Math.round(Math.hypot(u.vf,u.vl)*3.6)+' <small>km/h</small>';
   const g=u.gear===0?'R':(Math.abs(u.vf)<0.6&&ms.thr===0?'N':String(u.gear));
-  const rpmShow=u._blipT>0?Math.max(u.rpm,7400):u.rpm;
-  grE.textContent=`AUTO · ${g} · ${Math.round(rpmShow)}rpm`+(u.shiftT>0?' ⇄':'')+(u._tc?' TC':'');
-  grE.style.color=(rpmShow>8000||u.gear===0)?'#f33':'#fa0';
+  grE.textContent=`SEQ · ${g} · ${Math.round(u.rpm)}rpm`+(u.shiftT>0?' ⇄':'')+(u._tc?' TC':'');
+  grE.style.color=(u.rpm>8000||u.gear===0)?'#f33':'#fa0';
   gfE.textContent='G: '+u.latG.toFixed(2)+(u.slipR>6?` · β${u.slipR.toFixed(0)}°`:'')+((u._satS||0)>0.3?' ⚠️':'')+((u._lockR||0)>0.4?' 💨':((u._lockF||0)>0.4?' 🔒':''));
   gfE.style.color=u.latG>2.6?'#f33':(u.latG>1.6?'#fa0':'#0df');
   const damageText=eventActive&&DAMAGE_ENABLED?` · DAMAGE:${Math.round(eventPlayerDamage*100)}%`:'';
-  aidE.textContent=`TCS:${TCS_LVL} ABS:${ABS_LVL} · SET:${SU.tag} · TIRE:${Math.round(u.tireWear)}% · AERO:${Math.round((u._aero||0)/9.81)}kg${WET?' 🌧':''}${damageText}`;
+  aidE.textContent=`TCS:${TCS_LVL} ABS:${ABS_LVL} · SET:${SU.tag} · TIRE:${Math.round(u.tireWear)}% · ${AERO_MODE}:${Math.round((u._aero||0)/9.81)}kg${WET?' 🌧':''}${damageText}`;
   aidE.style.color=(TCS_LVL===0&&ABS_LVL===0)?'#f66':'#8cf';
   ltE.textContent='LAP: '+fmt(timerOn?Math.max(0,elapsed-lapStart):0);
   bsE.textContent='BEST(干净圈): '+fmt(curBest());
