@@ -68,6 +68,11 @@ test('player tire temperature step reads lateral slip speed from the wheel state
   assert.match(gameSource, /lateralForce:result\.lateralForce,lateralSlipSpeed:lateralSpeed/);
 });
 
+test('A and D inputs steer left and right in the tire coordinate frame', () => {
+  assert.match(gameSource, /tapSteering\(u\.steer,-1,STEERING_CONFIG\)/);
+  assert.match(gameSource, /tapSteering\(u\.steer,1,STEERING_CONFIG\)/);
+});
+
 test('AI visuals and collision bounds use the same world dimensions as the player', () => {
   assert.match(gameSource, /PLAYER_WORLD_WIDTH=1\.95\*PLAYER_BODY_SCALE/);
   assert.match(gameSource, /PLAYER_WORLD_LENGTH=4\.5\*PLAYER_BODY_SCALE/);

@@ -807,11 +807,11 @@ addEventListener('keydown',e=>{
   if(!e.repeat)logAction('key-down',{key:k});
   if(k==='a'&&!keys.a){
     keys.a=true;
-    if(!keys.d&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,1,STEERING_CONFIG);
+    if(!keys.d&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,-1,STEERING_CONFIG);
   }
   if(k==='d'&&!keys.d){
     keys.d=true;
-    if(!keys.a&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,-1,STEERING_CONFIG);
+    if(!keys.a&&!keys.w)u.steer=vehicleControls.tapSteering(u.steer,1,STEERING_CONFIG);
   }
   if(k==='w'&&!keys.w){keys.w=true;if(!keys.a&&!keys.d)u.steer=0;}
   if(k==='s'&&!keys.s){keys.s=true;if(Math.abs(u.vf)<0.8&&u.shiftT<=0)vehicleTransmission.requestGear(u,u.gear===0?1:0,TRANSMISSION_CONFIG);}
