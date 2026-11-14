@@ -184,8 +184,9 @@ const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
 const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
 const SMAX=360*D2R,MWA=30*D2R,SR=12,SHOLD=25*D2R,SRET=20*D2R,B0=5*D2R,B1=20*D2R;
 const WHEEL_R=0.33, K_RPM=60/(2*Math.PI*WHEEL_R), IDLE=1500, REDLINE=8500;
-const GTOT=[12.2,9.76,8.9,7.4,6.1,3.6];
+const GTOT=[12.2,9.7,7.7,6.1,4.8,3.8];
 const G_REV=4.2, REV_FORCE=4000, REV_MAXV=5.5;
+const AUTO_SHIFT_UP_RPM=8200, AUTO_SHIFT_DOWNSHIFT_RPM=5200, AUTO_SHIFT_KICKDOWN_RPM=6500;
 const TPEAK=560, PPEAK=430000, EB_TQ=70;
 const TCS_FRAC=[1.0,0.94,0.87,0.79,0.71,0.62];
 const TCS_CUT =[0.0,0.20,0.35,0.50,0.65,0.80];
@@ -347,7 +348,7 @@ function resetCar(){
 setLevel(false);applySetup(1);resetCar();
 
 const PAGES=[
- {t:'🎮 油门',d:`<span class="key">鼠标右键</span> 按住并<b>向下拖拽</b> = 油门。<br>· 6速<b>自动变速箱</b>：3-5档已减速化。<br>· <b>TCS</b>（T键 0-5档）：0=全关，后轮可完全打滑。<br><b>→ 试试：右键拖拽加油到 80 km/h。</b>`},
+ {t:'🎮 油门',d:`<span class="key">鼠标右键</span> 按住并<b>向下拖拽</b> = 油门。<br>· 6速<b>自动变速箱</b>：约8200rpm升挡，减速降挡，深踩油门触发kickdown。<br>· <b>TCS</b>（T键 0-5档）：0=全关，后轮可完全打滑。<br><b>→ 试试：右键拖拽加油到 80 km/h。</b>`},
  {t:'🛑 刹车',d:`<span class="key">鼠标左键</span> 按住并<b>向下拖拽</b> = 刹车。<br>· <b>ABS</b>（B键 0-5档）：0=全关，重刹会抱死🔒丧失部分转向。<br>· 刹车载荷前移+下压力加成→高速制动更强。<br><b>→ 试试：150 km/h 刹停。</b>`},
  {t:'🎯 转向/调教/规则',d:`<span class="key">A</span>=左 · <span class="key">D</span>=右 · <span class="key">W</span>=回正/冻结 · <span class="key">Q</span>=切换调教方案。<br>· 三方案(仅悬挂/底盘)：🛡轻推头 / ⚖均衡 / 🔥轻甩尾。<br>· <b style="color:#f66">四轮完全出赛道=该圈不计最佳；无限圈。</b><br>· 菜单可选<b>雨天关卡</b>。<br><b>→ 试试：A/D 转向，Q 换调教感受差异。</b>`}
 ];
@@ -758,10 +759,18 @@ function gearbox(dt){
   u.rpm=Math.max(IDLE,v*K_RPM*gearRatio());
   if(u.shiftT>0){u.shiftT-=dt;return;}
   if(u.gear===0)return;
-  if(u.gear<6&&u.rpm>8100){u.gear++;u.shiftT=0.25;}
-  else if(u.gear>1&&u.rpm<4200){
+  if(u.gear<6&&u.rpm>=AUTO_SHIFT_UP_RPM){
+    u.gear++;u.shiftT=0.20;
+    return;
+  }
+  if(u.gear>1){
     const rpmLow=v*K_RPM*GTOT[u.gear-2];
-    if(rpmLow<8200){u.gear--;u.shiftT=0.18;u._blipT=0.15;}
+    const safeDownshift=rpmLow<REDLINE-350;
+    const kickdown=ms.thr>0.85&&u.rpm<7600
+      &&rpmLow>=AUTO_SHIFT_KICKDOWN_RPM&&safeDownshift;
+    if(safeDownshift&&(u.rpm<AUTO_SHIFT_DOWNSHIFT_RPM||kickdown)){
+      u.gear--;u.shiftT=0.18;u._blipT=0.15;
+    }
   }
 }
 function driveForce(){
@@ -975,7 +984,7 @@ function hud(){
   spE.innerHTML=Math.round(Math.hypot(u.vf,u.vl)*3.6)+' <small>km/h</small>';
   const g=u.gear===0?'R':(Math.abs(u.vf)<0.6&&ms.thr===0?'N':String(u.gear));
   const rpmShow=u._blipT>0?Math.max(u.rpm,7400):u.rpm;
-  grE.textContent=`GEAR: ${g} · ${Math.round(rpmShow)}rpm`+(u.shiftT>0?' ⇄':'')+(u._tc?' TC':'');
+  grE.textContent=`AUTO · ${g} · ${Math.round(rpmShow)}rpm`+(u.shiftT>0?' ⇄':'')+(u._tc?' TC':'');
   grE.style.color=(rpmShow>8000||u.gear===0)?'#f33':'#fa0';
   gfE.textContent='G: '+u.latG.toFixed(2)+(u.slipR>6?` · β${u.slipR.toFixed(0)}°`:'')+((u._satS||0)>0.3?' ⚠️':'')+((u._lockR||0)>0.4?' 💨':((u._lockF||0)>0.4?' 🔒':''));
   gfE.style.color=u.latG>2.6?'#f33':(u.latG>1.6?'#fa0':'#0df');

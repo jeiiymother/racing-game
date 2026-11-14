@@ -95,14 +95,15 @@
 <b>TCS</b>：T键 0-5 共6档 · <b>ABS</b>：B键 0-5 共6档（触发时机相同，强度递增）<br>
 <b>关闭辅助</b>：TCS0/ABS0 时摩擦圆仍保留22%侧向地板（真实轮胎滑移区特性），但持续滥用油门/刹车仍会甩尾/推头<br>
 <b>调教</b>：Q键循环 稳定(轻推头)/均衡/敏捷(轻甩尾) —— 仅改悬挂与底盘<br>
-<b>倒车</b>：停稳点按S切R档 · <b>重置</b>：R键 · <b>菜单</b>：Esc<br>
+<b>自动变速箱</b>：6前进挡按转速自动升挡；深踩油门会降挡，松油减速时也会自动降挡。停稳点按S切R档<br>
+<b>重置</b>：R键 · <b>菜单</b>：Esc<br>
 <b>关卡</b>：干地 / 雨天（μ降低+雨粒子，圈速分开记录）<br>
 <b>赛事</b>：排位 5/10/20/30 分钟；正赛 10/20/30/40/50/60 分钟；到时后过线完赛<br>
 <b>AI/碰撞</b>：业余/专业/大师 AI 会按弯道走线并尝试攻防；车辆损伤可在菜单开关<br>
 <b>轮胎</b>：持续驾驶会磨损轮胎并降低抓地；菜单可关闭车辆损伤，不会关闭实体碰撞<br>
 <b>操作日志</b>：返回主菜单后可复制本场控制输入与车辆遥测；日志不是录像，不支持回放<br>
 <b>圈速</b>：无限圈；四轮完全出赛道=该圈不计最佳<br>
-<b>变速箱</b>：6速自动 [12.2/9.76/8.9/7.4/6.1/3.6]<br>
+<b>变速箱</b>：6速自动 · 总传动比 [12.2/9.7/7.7/6.1/4.8/3.8] · 约8200rpm升挡 · 深踩油门自动kickdown<br>
 <button id="btnCtrlClose">关闭</button>
 </div>
 <div id="fs"><h1>¡META!</h1><p id="ft"></p><p id="fb"></p><button onclick="location.reload()">REINICIAR</button></div>
@@ -111,6 +112,6 @@
 <script src="./js/three-loader.js"></script>
 <script src="./js/ai-config.js"></script>
 <script src="./js/operation-log.js"></script>
-<script src="./js/game_modes.js?v=20261113-2"></script>
+<script src="./js/game_modes.js?v=20261114-1"></script>
 </body>
 </html>
