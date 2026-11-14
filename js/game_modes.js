@@ -94,6 +94,7 @@ const D2R=Math.PI/180;
 const MASS=1260, WB=2.7, LF=1.39, LR=1.31, CGH=0.35;
 const PLAYER_BODY_SCALE=1.45, PLAYER_WORLD_WIDTH=1.95*PLAYER_BODY_SCALE;
 const PLAYER_WORLD_LENGTH=4.5*PLAYER_BODY_SCALE;
+const MODEL_WHEEL_HALF_TRACK=1.1;
 const YAW_INERTIA=MASS*(4.633*4.633+2.045*2.045)/12;
 const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.10, REFERENCE_WHEEL_LOAD=3000;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
@@ -185,26 +186,29 @@ function createVehicleModel(color){
   box(2.05,0.12,0.7,0x111111,0,0.28,2.1);
   box(0.12,0.5,2.2,0x141414,-0.98,0.55,0);
   box(0.12,0.5,2.2,0x141414,0.98,0.55,0);
-  const wheelGeometry=new THREE.CylinderGeometry(
-    WHEEL_R/PLAYER_BODY_SCALE,WHEEL_R/PLAYER_BODY_SCALE,0.31/PLAYER_BODY_SCALE,12
-  );
-  const wheelMaterial=new THREE.MeshBasicMaterial({color:0x141414});
+  const wheelGeometry=new THREE.CylinderGeometry(WHEEL_R,WHEEL_R,0.32,12);
+  const wheelMaterial=new THREE.MeshBasicMaterial({color:0x303030});
+  const rimGeometry=new THREE.CylinderGeometry(WHEEL_R*0.58,WHEEL_R*0.58,0.02,12);
+  const rimMaterial=new THREE.MeshBasicMaterial({color:0xb0b0b0});
   const wheels=[],steeringWheels=[];
   [
-    [-TRACK_WIDTH/2/PLAYER_BODY_SCALE,LF/PLAYER_BODY_SCALE,true],
-    [ TRACK_WIDTH/2/PLAYER_BODY_SCALE,LF/PLAYER_BODY_SCALE,true],
-    [-TRACK_WIDTH/2/PLAYER_BODY_SCALE,-LR/PLAYER_BODY_SCALE,false],
-    [ TRACK_WIDTH/2/PLAYER_BODY_SCALE,-LR/PLAYER_BODY_SCALE,false]
-  ].forEach(([x,z,steer])=>{
+    [-MODEL_WHEEL_HALF_TRACK,WHEEL_R,LF,true],
+    [MODEL_WHEEL_HALF_TRACK,WHEEL_R,LF,true],
+    [-MODEL_WHEEL_HALF_TRACK,WHEEL_R,-LR,false],
+    [MODEL_WHEEL_HALF_TRACK,WHEEL_R,-LR,false]
+  ].forEach(([x,y,z,steer])=>{
     const mount=steer?new THREE.Group():group;
     if(steer){
-      mount.position.set(x,WHEEL_R/PLAYER_BODY_SCALE,z);
+      mount.position.set(x,y,z);
       group.add(mount);
       steeringWheels.push(mount);
     }
     const wheel=new THREE.Mesh(wheelGeometry,wheelMaterial);
     wheel.rotation.z=Math.PI/2;
-    wheel.position.set(steer?0:x,steer?0:WHEEL_R/PLAYER_BODY_SCALE,steer?0:z);
+    wheel.position.set(steer?0:x,steer?0:y,steer?0:z);
+    const rim=new THREE.Mesh(rimGeometry,rimMaterial);
+    rim.position.y=x<0?0.15:-0.15;
+    wheel.add(rim);
     mount.add(wheel);
     wheels.push(wheel);
   });
@@ -941,10 +945,10 @@ function step(H,now){
   const rearDriveTorque=(driveDemand+engineBrake())*WHEEL_R/2;
   const steeringAngles=vehicleControls.ackermannAngles(wa,WB,TRACK_WIDTH);
   const wheelPositions=[
-    {x:-TRACK_WIDTH/2,z:LF,load:frontWheelLoads[0],steer:steeringAngles[0],drive:0,brake:frontBrakeTorque,mu:mu*SU.camberGripFront*tireGripAt(0,1),cornering:SU.CF/2},
-    {x: TRACK_WIDTH/2,z:LF,load:frontWheelLoads[1],steer:steeringAngles[1],drive:0,brake:frontBrakeTorque,mu:mu*SU.camberGripFront*tireGripAt(1,1),cornering:SU.CF/2},
-    {x:-TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[0],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:mu*SU.camberGripRear*tireGripAt(2,1),cornering:SU.CR/2},
-    {x: TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[1],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:mu*SU.camberGripRear*tireGripAt(3,1),cornering:SU.CR/2}
+    {x:-TRACK_WIDTH/2,z:LF,load:frontWheelLoads[0],steer:steeringAngles[0],drive:0,brake:frontBrakeTorque,mu:mu*SU.camberGripFront*tireGripAt(0,1),cornering:SU.CF},
+    {x: TRACK_WIDTH/2,z:LF,load:frontWheelLoads[1],steer:steeringAngles[1],drive:0,brake:frontBrakeTorque,mu:mu*SU.camberGripFront*tireGripAt(1,1),cornering:SU.CF},
+    {x:-TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[0],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:mu*SU.camberGripRear*tireGripAt(2,1),cornering:SU.CR},
+    {x: TRACK_WIDTH/2,z:-LR,load:rearWheelLoads[1],steer:0,drive:rearDriveTorque,brake:rearBrakeTorque,mu:mu*SU.camberGripRear*tireGripAt(3,1),cornering:SU.CR}
   ];
   let totalLongitudinalForce=0,totalLateralForce=0,totalYawMoment=0;
   let frontLateralForce=0,rearLateralForce=0;

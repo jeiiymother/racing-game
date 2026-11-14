@@ -10,6 +10,7 @@ vm.runInContext(
   context
 );
 const physics = context.window.GameModules.vehiclePhysics;
+const gameSource = fs.readFileSync(path.join(__dirname, '../js/game_modes.js'), 'utf8');
 
 const aeroConfig = preset => ({
   airDensity: 1.225,
@@ -211,6 +212,21 @@ test('Magic Formula lateral force is restoring, linear near zero, and saturates'
   assert.ok(largeSlip < smallSlip);
   assert.ok(Math.abs(largeSlip) <= 5000);
   assert.ok(Math.abs(largeSlip) > 4900);
+});
+
+test('game applies configured cornering stiffness per tire without halving it', () => {
+  assert.match(gameSource, /cornering:SU\.CF\}/);
+  assert.match(gameSource, /cornering:SU\.CR\}/);
+  assert.doesNotMatch(gameSource, /cornering:SU\.(?:CF|CR)\/2/);
+});
+
+test('vehicle wheels remain at the full model scale and outside the chassis body', () => {
+  assert.match(gameSource, /new THREE\.CylinderGeometry\(WHEEL_R,WHEEL_R,0\.32,12\)/);
+  assert.match(gameSource, /new THREE\.CylinderGeometry\(WHEEL_R\*0\.58,WHEEL_R\*0\.58,0\.02,12\)/);
+  assert.match(gameSource, /wheel\.add\(rim\)/);
+  assert.match(gameSource, /const MODEL_WHEEL_HALF_TRACK=1\.1/);
+  assert.match(gameSource, /\[-MODEL_WHEEL_HALF_TRACK,WHEEL_R,LF,true\]/);
+  assert.match(gameSource, /\[MODEL_WHEEL_HALF_TRACK,WHEEL_R,-LR,false\]/);
 });
 
 test('longitudinal tire force follows slip direction and remains load-limited', () => {
