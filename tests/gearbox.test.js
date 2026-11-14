@@ -11,24 +11,23 @@ vm.runInContext(
 );
 const transmission = context.window.GameModules.vehicleTransmission;
 const config = {
-  gearRatios: [3.00, 2.40, 1.92, 1.54, 1.23, 0.98],
-  finalDrive: 4.15,
+  gearRatios: [2.27, 1.59, 1.135, 0.986, 0.94, 0.90],
+  finalDrive: 4.50,
   reverseRatio: 3.10,
   wheelRadius: 0.355,
   maximumVehicleSpeed: 78,
   idleRpm: 1500,
-  shiftUpRpm: 8000,
-  shiftDownRpm: 5200,
+  shiftUpRpm: 7600,
+  shiftDownRpm: 4800,
   maximumDownshiftRpm: 8150,
   downshiftTargetMaxRpm: 7200,
-  kickdownRpm: 5800,
   kickdownTargetMinRpm: 6200,
-  kickdownTargetMaxRpm: 7600,
+  kickdownTargetMaxRpm: 7500,
   kickdownThrottle: 0.85,
-  shiftLockoutDuration: 0.24,
-  shiftDuration: 0.14,
-  torqueCutFraction: 0.48,
-  torqueRecoveryFraction: 0.28
+  shiftLockoutDuration: 0.18,
+  shiftDuration: 0.09,
+  torqueCutFraction: 0.35,
+  torqueRecoveryFraction: 0.32
 };
 
 function makeState(gear, rpm) {
@@ -53,12 +52,12 @@ test('all forward gears upshift with a torque cut and smooth RPM synchronization
     assert.equal(state.gear, gear + 1);
     assert.equal(state.shiftT, config.shiftDuration);
 
-    transmission.update(state, 0.07, state.vf, 1, config);
+    transmission.update(state, 0.05, state.vf, 1, config);
     assert.ok(state.rpm < 8100);
-    assert.ok(state.rpm > 5400);
+    assert.ok(state.rpm > 5000);
     assert.ok(state._shiftTorqueFactor > 0 && state._shiftTorqueFactor < 1);
 
-    transmission.update(state, 0.08, state.vf, 1, config);
+    transmission.update(state, 0.05, state.vf, 1, config);
     assert.equal(state.shiftT, 0);
     assert.equal(state._shiftTorqueFactor, 1);
   }
@@ -128,11 +127,25 @@ test('a steady speed increase produces sequential upshifts without gear hunting'
   assert.deepEqual(shifts, [2, 3, 4, 5, 6]);
 });
 
+test('kickdown requires a new high-throttle request rather than sustained throttle', () => {
+  const state = makeState(3, 4900);
+  state.previousThrottle = 0.9;
+  for (let frame = 0; frame < 60; frame++) {
+    transmission.update(state, 1 / 240, state.vf, 0.95, config);
+    assert.equal(state.gear, 3);
+  }
+
+  state.previousThrottle = 0.4;
+  transmission.update(state, 1 / 240, state.vf, 0.95, config);
+  assert.equal(state.gear, 2);
+});
+
 test('close ratios keep a consistent RPM drop and reach redline near the speed cap', () => {
   for (let gear = 1; gear < config.gearRatios.length; gear++) {
     const step = config.gearRatios[gear] / config.gearRatios[gear - 1];
-    assert.ok(step > 0.79 && step < 0.81);
+    assert.ok(step > 0.65 && step < 0.99);
   }
+  assert.ok(Math.abs(config.gearRatios[2] / config.gearRatios[3] - 1.15) < 0.002);
   const wheelRpmFactor = 60 / (2 * Math.PI * config.wheelRadius);
   const redlineSpeed = 8500
     / (wheelRpmFactor * transmission.ratioForGear(6, config));

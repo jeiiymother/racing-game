@@ -24,6 +24,8 @@
   function update(state, dt, speed, throttle, config) {
     const wheelRpmFactor = 60 / (2 * Math.PI * config.wheelRadius);
     const speedMagnitude = Math.abs(speed);
+    const previousThrottle = state.previousThrottle ?? 0;
+    state.previousThrottle = throttle;
     state.shiftCooldown = Math.max(0, (state.shiftCooldown || 0) - dt);
     if (state.shiftT > 0) {
       state.shiftElapsed = Math.min(state.shiftDuration, state.shiftElapsed + dt);
@@ -60,7 +62,7 @@
       const safeDownshift = nextGearRpm < config.maximumDownshiftRpm
         && nextGearRpm <= config.downshiftTargetMaxRpm;
       const kickdown = throttle >= config.kickdownThrottle
-        && state.rpm <= config.kickdownRpm
+        && previousThrottle < config.kickdownThrottle
         && nextGearRpm >= config.kickdownTargetMinRpm
         && nextGearRpm <= config.kickdownTargetMaxRpm;
       if (safeDownshift && (state.rpm < config.shiftDownRpm || kickdown)) {

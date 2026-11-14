@@ -22,10 +22,10 @@ const aeroConfig = preset => ({
 });
 
 const suspensionInput = aero => ({
-  mass: 1230,
+  mass: 1260,
   unsprungMass: 38,
-  frontAxleDistance: 1.35,
-  rearAxleDistance: 1.45,
+  frontAxleDistance: 1.39,
+  rearAxleDistance: 1.31,
   trackWidth: 1.62,
   cgHeight: 0.35,
   longitudinalAcceleration: 0,
@@ -73,7 +73,7 @@ test('suspension settles to aerodynamic and longitudinal load changes', () => {
   const front = loads.front.reduce((sum, load) => sum + load, 0);
   const rear = loads.rear.reduce((sum, load) => sum + load, 0);
   assert.ok(rear > front);
-  assert.ok(Math.abs(front + rear - (1230 * 9.81 + aero.total)) < 2);
+  assert.ok(Math.abs(front + rear - (1260 * 9.81 + aero.total)) < 2);
   assert.ok(loads.front.every(load => load > 0));
   assert.ok(loads.rear.every(load => load > 0));
 });
@@ -92,8 +92,19 @@ test('suspension roll transfers load across the axle without losing total load',
   assert.ok(loads.front[1] > loads.front[0]);
   assert.ok(loads.rear[1] > loads.rear[0]);
   assert.ok(Math.abs(
-    loads.front.concat(loads.rear).reduce((sum, load) => sum + load, 0) - 1230 * 9.81
+    loads.front.concat(loads.rear).reduce((sum, load) => sum + load, 0) - 1260 * 9.81
   ) < 2);
+});
+
+test('static axle load matches the configured 48.5 percent front distribution', () => {
+  const loads = physics.suspension.step(
+    physics.suspension.createState(),
+    suspensionInput({ front: 0, rear: 0, total: 0 }),
+    1 / 240,
+    suspensionSetup
+  );
+  const frontLoad = loads.front.reduce((sum, load) => sum + load, 0);
+  assert.ok(Math.abs(frontLoad / (1260 * 9.81) - 0.485) < 1e-12);
 });
 
 test('front anti-roll stiffness shifts a larger share of lateral load to the front axle', () => {
@@ -132,6 +143,10 @@ test('combined-slip lateral capacity stays inside the friction ellipse', () => {
   const capacity = physics.tires.computeLateralCapacity(10000, 8000);
   assert.ok(Math.abs(capacity - 6000) < 1e-9);
   assert.ok(capacity * capacity + 8000 * 8000 <= 10000 * 10000);
+});
+
+test('locked and spinning tires retain the sliding lateral reserve from the base game', () => {
+  assert.equal(physics.tires.computeLateralCapacity(10000, 10000, 0.22), 2200);
 });
 
 test('Magic Formula lateral force is restoring, linear near zero, and saturates', () => {

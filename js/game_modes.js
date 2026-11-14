@@ -1,6 +1,7 @@
 const { loadThree, createOperationLogger } = window.GameModules;
 const { AI_ROSTER, AI_SKILLS, assignAISkills } = window.GameModules.ai;
 const { aeroPresets, aerodynamics, suspension, tires } = window.GameModules.vehiclePhysics;
+const vehicleEngine = window.GameModules.vehicleEngine;
 const vehicleTransmission = window.GameModules.vehicleTransmission;
 const vehicleControls = window.GameModules.vehicleControls;
 
@@ -89,7 +90,7 @@ makeGate(420);
 
 // ===== SIM v6.1 =====
 const D2R=Math.PI/180;
-const MASS=1260, WB=2.7, LF=1.30, LR=1.40, CGH=0.35;
+const MASS=1260, WB=2.7, LF=1.39, LR=1.31, CGH=0.35;
 const YAW_INERTIA=MASS*(4.633*4.633+2.045*2.045)/12;
 const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.10, REFERENCE_WHEEL_LOAD=3000;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
@@ -105,12 +106,12 @@ const SUSPENSION_INPUT={
 };
 const suspensionState=suspension.createState();
 const TRANSMISSION_CONFIG={
-  gearRatios:[3.00,2.40,1.92,1.54,1.23,0.98],finalDrive:4.15,reverseRatio:3.10,
-  wheelRadius:0.355,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:5200,
+  gearRatios:[2.27,1.59,1.135,0.986,0.94,0.90],finalDrive:4.50,reverseRatio:3.10,
+  wheelRadius:0.355,idleRpm:1500,shiftUpRpm:7600,shiftDownRpm:4800,
   maximumDownshiftRpm:8150,downshiftTargetMaxRpm:7200,
-  kickdownRpm:5800,kickdownTargetMinRpm:6200,kickdownTargetMaxRpm:7600,
-  kickdownThrottle:0.85,shiftLockoutDuration:0.24,
-  shiftDuration:0.14,torqueCutFraction:0.48,torqueRecoveryFraction:0.28
+  kickdownTargetMinRpm:6200,kickdownTargetMaxRpm:7500,
+  kickdownThrottle:0.85,shiftLockoutDuration:0.18,
+  shiftDuration:0.09,torqueCutFraction:0.35,torqueRecoveryFraction:0.32
 };
 const STEERING_CONFIG={
   maximumAngle:360*D2R,turnRateDegrees:120,returnRateDegrees:90,
@@ -121,11 +122,6 @@ const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
 const SMAX=360*D2R,MWA=30*D2R,SR=12;
 const WHEEL_R=0.355, IDLE=1500, REDLINE=8500;
 const REV_FORCE=4000, REV_MAXV=5.5;
-const ENGINE_SPEC={
-  displacementCc:3902,ratedPowerW:600*735.49875,ratedPowerRpm:7000
-};
-const ENGINE_TORQUE_REFERENCE=ENGINE_SPEC.ratedPowerW
-  /(ENGINE_SPEC.ratedPowerRpm*2*Math.PI/60);
 const EB_TQ=70;
 const TCS_FRAC=[1.0,0.94,0.87,0.79,0.71,0.62];
 const TCS_CUT =[0.0,0.20,0.35,0.50,0.65,0.80];
@@ -164,18 +160,6 @@ function selectAeroMode(mode){
 function applySetup(i){
   SU_IDX=(i+3)%3;SU=SETUPS[SU_IDX];
   document.querySelectorAll('.scard').forEach((el,k)=>el.classList.toggle('sel',k===SU_IDX));
-}
-function torqueN(rpm){
-  if(rpm<1500)return 0.65+0.35*(rpm/1500);
-  if(rpm<3500)return 1.0;
-  if(rpm<5500)return 1.0+0.08*(rpm-3500)/2000;
-  if(rpm<6000)return 1.08+0.02*(rpm-5500)/500;
-  if(rpm<7000)return 1.10-0.10*(rpm-6000)/1000;
-  if(rpm<8500)return 1.0-0.30*(rpm-7000)/1500;
-  return 0.70;
-}
-function pN(rpm){
-  return torqueN(rpm)*ENGINE_TORQUE_REFERENCE*rpm*2*Math.PI/60/ENGINE_SPEC.ratedPowerW;
 }
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function muOf(s){
@@ -275,7 +259,7 @@ function resetCar(){
   u._lockF=0;u._lockR=0;u._wheelOmegaF=0;u._wheelOmegaR=0;u._wheelSlipF=0;u._wheelSlipR=0;
   u._impact=0;u._dPrev=0;u._aero=0;
   u.tireWear=100;
-  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftCooldown=0;u.shiftStartRpm=IDLE;u._shiftTorqueFactor=1;
+  u.gear=1;u.rpm=IDLE;u.shiftT=0;u.shiftElapsed=0;u.shiftDuration=0;u.shiftCooldown=0;u.shiftStartRpm=IDLE;u.previousThrottle=0;u._shiftTorqueFactor=1;
   Object.assign(suspensionState,suspension.createState());
   u.lapValid=true;u._wallT=0;
   car.rotation.set(0,u.heading,0);chassis.rotation.set(0,0,0);chassis.position.y=0;
@@ -762,8 +746,9 @@ function driveForce(){
     &&u.vf>=formationTargetSpeed('PLAYER',racePlayerProgress))return 0;
   if(u.rpm>REDLINE+120)return 0;
   const gr=gearRatio();
-  const fT=ENGINE_TORQUE_REFERENCE*torqueN(u.rpm)*gr/WHEEL_R*0.9;
-  const fP=ENGINE_SPEC.ratedPowerW*pN(u.rpm)*0.9/Math.max(Math.abs(u.vf),3);
+  const engine=vehicleEngine.atRpm(u.rpm);
+  const fT=engine.torqueNm*gr/WHEEL_R*0.9;
+  const fP=engine.powerWatts*0.9/Math.max(Math.abs(u.vf),3);
   const damageFactor=eventActive&&DAMAGE_ENABLED?Math.max(0.65,1-eventPlayerDamage*0.35):1;
   const F=Math.min(fT,fP)*damageFactor*u._shiftTorqueFactor;
   if(u.gear===0){
@@ -778,6 +763,7 @@ function engineBrake(){
 }
 
 function step(H,now){
+  gearbox(H);
   const wa=clamp(u.steer/SR,-MWA,MWA);
   const cl=nearest(car.position,u.wpi);
   const tn=curve.getTangentAt((cl.i%NW)/NW).normalize();
@@ -865,8 +851,9 @@ function step(H,now){
   // FIX: toe bias scaled by fade => no constant pull at standstill/low speed
   const af=(Math.atan2(vl+r*LF,Math.max(vf,0.8)) - wa + SU.TOE_F)*fade;
   const ar=(Math.atan2(vl-r*LR,Math.max(vf,0.8)) - SU.TOE_R*0.6)*fade;
-  const capF=tires.computeLateralCapacity(capFLong,FxF);
-  const capR=tires.computeLateralCapacity(capRLong,FxR);
+  const lateralFloor=u._lockF>0.35||u._lockR>0.35?0.22:0;
+  const capF=tires.computeLateralCapacity(capFLong,FxF,lateralFloor);
+  const capR=tires.computeLateralCapacity(capRLong,FxR,lateralFloor);
   const CW=WET?0.85:1;
   const FyFt=tires.lateralTireForce(af,capF,CF_WET(CW,SU.CF));
   const FyRt=tires.lateralTireForce(ar,capR,CR_WET(CW,SU.CR));
@@ -930,7 +917,6 @@ function CR_WET(cw,c){return c*cw;}
 function updPlayer(dt,now){
   u.steer=vehicleControls.stepSteering(u.steer,keys,dt,STEERING_CONFIG);
   u.pv.forEach(p=>p.rotation.y=clamp(u.steer/SR,-MWA,MWA));
-  gearbox(dt);
   acc+=dt;const H=1/240;let n=0;
   while(acc>=H&&n<10){step(H,now);acc-=H;n++;}
   if(n>=10)acc=0;

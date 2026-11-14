@@ -11,6 +11,7 @@ test('vehicle modules load before the game orchestrator', () => {
   for (const modulePath of [
     './js/track-course.js',
     './js/vehicle-physics.js',
+    './js/vehicle-engine.js',
     './js/vehicle-transmission.js',
     './js/vehicle-controls.js'
   ]) {

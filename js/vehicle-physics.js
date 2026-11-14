@@ -132,9 +132,10 @@
     }, 0);
   }
 
-  function computeLateralCapacity(totalGrip, longitudinalForce) {
+  function computeLateralCapacity(totalGrip, longitudinalForce, slidingGripFraction = 0) {
     const ratio = Math.min(1, Math.abs(longitudinalForce) / Math.max(totalGrip, 1));
-    return totalGrip * Math.sqrt(1 - ratio * ratio);
+    const frictionEllipseCapacity = totalGrip * Math.sqrt(1 - ratio * ratio);
+    return Math.max(frictionEllipseCapacity, totalGrip * slidingGripFraction);
   }
 
   function magicFormula(slip, capacity, stiffness, shape) {
