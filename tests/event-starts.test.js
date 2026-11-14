@@ -12,13 +12,13 @@ vm.runInContext(
 const rules = context.window.GameModules.eventRules;
 const gameSource = fs.readFileSync(path.join(__dirname, '../js/game_modes.js'), 'utf8');
 
-test('qualifying release times follow randomized grid order at exact 20-second intervals', () => {
+test('qualifying grid positions follow randomized order at exact 100-meter intervals', () => {
   const grid = rules.shuffledGrid(['PLAYER', 'ai-1', 'ai-2', 'ai-3'], () => 0);
-  const schedule = rules.qualifyingSchedule(grid, 20);
-  assert.equal(schedule.get(grid[0]), 0);
-  assert.equal(schedule.get(grid[1]), 20);
-  assert.equal(schedule.get(grid[2]), 40);
-  assert.equal(schedule.get(grid[3]), 60);
+  const positions = rules.qualifyingGridPositions(grid, 100);
+  assert.equal(positions.get(grid[0]), 0);
+  assert.equal(positions.get(grid[1]), -100);
+  assert.equal(positions.get(grid[2]), -200);
+  assert.equal(positions.get(grid[3]), -300);
   assert.equal(grid.includes('PLAYER'), true);
 });
 
@@ -75,8 +75,21 @@ test('AI visuals and collision bounds use the same world dimensions as the playe
   assert.match(gameSource, /const group=createVehicleModel\(driver\.color\)/);
 });
 
-test('qualifying start times are assigned from each randomized position', () => {
+test('qualifying cars are spaced on the grid and start together', () => {
   assert.match(gameSource, /const grid=fromWeekendQualifying&&weekendQualOrder\.length\s*\?weekendQualOrder:eventRules\.shuffledGrid\(defaultGrid\)/);
-  assert.match(gameSource, /ai\.startAt=eventStage==='qualifying'\?qualifyingStartTimes\.get\(ai\.id\):0/);
-  assert.match(gameSource, /playerQualifyingStartAt=qualifyingStartTimes\.get\('PLAYER'\)/);
+  assert.match(gameSource, /qualifyingGridPositions=eventRules\.qualifyingGridPositions\(grid,QUALIFYING_GRID_SPACING\)/);
+  assert.match(gameSource, /QUALIFYING_GRID_SPACING=100/);
+  assert.match(gameSource, /ai\.started=true/);
+  assert.match(gameSource, /ai\.raceStarted=false;ai\.mesh\.visible=true/);
+  assert.match(gameSource, /qualifying-line-crossing/);
+  assert.match(gameSource, /qualifyingGridPositions\.get\('PLAYER'\)===0/);
+  assert.doesNotMatch(gameSource, /eventStage==='qualifying'&&!playerQualifyingStarted\)return 0/);
+  assert.doesNotMatch(gameSource, /qualifyingStartTimes|playerQualifyingStartAt|qualifyingSchedule/);
+});
+
+test('active traction control preserves lateral tire capacity while allocating drive force', () => {
+  assert.match(gameSource, /const wetTireScale=WET\?0\.85:1/);
+  assert.match(gameSource, /\[load\],mu\*wetTireScale\*SU\.camberGripRear/);
+  assert.match(gameSource, /tires\.computeLateralCapacity\(\s*tireGrip,u\._wheelStates\[index\+2\]\.lateralForce\s*\)/);
+  assert.match(gameSource, /const driveLimit=TCS_LVL>0\?rearDriveCapacity\*TCS_FRAC\[TCS_LVL\]:Infinity/);
 });

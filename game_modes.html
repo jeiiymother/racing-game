@@ -75,8 +75,8 @@
 <label for="raceDuration" style="color:#bcd;font-size:13px">正赛时长</label>
 <select id="raceDuration"><option value="600">10 分钟</option><option value="1200">20 分钟</option><option value="1800">30 分钟</option><option value="2400">40 分钟</option><option value="3000">50 分钟</option><option value="3600">60 分钟</option></select>
 <button class="primary" id="btnSprint">🏎 正赛 · 编队动态起步 · 8车同场</button>
-<button id="btnQualifying">⏱ 排位赛 · 单车起步 · 间隔20秒</button>
-<button class="wetb" id="btnWeekend">🏆 比赛周 · 间隔发车排位 + 动态起步正赛</button>
+<button id="btnQualifying">⏱ 排位赛 · 间隔100m同时发车</button>
+<button class="wetb" id="btnWeekend">🏆 比赛周 · 间隔100m排位 + 动态起步正赛</button>
 <button id="btnSetup">🔧 调教方案 (悬挂/底盘 ×3)</button>
 <button id="btnTut">🎓 新手教程 (教学+检查点)</button>
 <button id="btnCtrl">⌨ 控制说明</button>
@@ -104,8 +104,8 @@
 <b>自动变速箱</b>：6前进挡按转速自动升挡；深踩油门会降挡，松油减速时也会自动降挡。停稳点按S切R档<br>
 <b>重置</b>：R键 · <b>菜单</b>：Esc<br>
 <b>关卡</b>：干地 / 雨天（μ降低+雨粒子，圈速分开记录）<br>
-<b>赛事</b>：排位 5/10/20/30 分钟；正赛 10/20/30/40/50/60 分钟；到时后过线完赛<br>
-<b>AI/碰撞</b>：业余/专业/大师 AI 会按弯道走线并尝试攻防；车辆损伤可在菜单开关<br>
+<b>赛事</b>：排位相隔100m同时发车，5/10/20/30 分钟；正赛 10/20/30/40/50/60 分钟；到时后过线完赛<br>
+<b>AI/碰撞</b>：业余/专业/大师 AI 会按弯道走线并尝试攻防；TCS按后轮剩余联合抓地分配扭矩；车辆损伤可在菜单开关<br>
 <b>轮胎</b>：显示胎耗与胎温；胎温随滑移升高并受风冷却，偏离工作温度会降低抓地。菜单可关闭车辆损伤，不会关闭实体碰撞<br>
 <b>操作日志</b>：返回主菜单后可复制本场控制输入与车辆遥测；日志不是录像，不支持回放<br>
 <b>圈速</b>：无限圈；四轮完全出赛道=该圈不计最佳<br>
@@ -119,11 +119,11 @@
 <script src="./js/ai-config.js"></script>
 <script src="./js/operation-log.js"></script>
 <script src="./js/track-course.js"></script>
-<script src="./js/event-rules.js?v=20261114-1"></script>
+<script src="./js/event-rules.js?v=20261114-2"></script>
 <script src="./js/vehicle-physics.js?v=20261114-4"></script>
 <script src="./js/vehicle-engine.js?v=20261114-2"></script>
 <script src="./js/vehicle-transmission.js?v=20261114-5"></script>
 <script src="./js/vehicle-controls.js?v=20261114-4"></script>
-<script src="./js/game_modes.js?v=20261114-15"></script>
+<script src="./js/game_modes.js?v=20261114-17"></script>
 </body>
 </html>

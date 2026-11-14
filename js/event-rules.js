@@ -8,8 +8,8 @@
     return grid;
   }
 
-  function qualifyingSchedule(grid, intervalSeconds) {
-    return new Map(grid.map((driver, index) => [driver, index * intervalSeconds]));
+  function qualifyingGridPositions(grid, spacingMeters) {
+    return new Map(grid.map((driver,index)=>[driver,index===0?0:-index*spacingMeters]));
   }
 
   function formationControls(speed, targetSpeed, gap, aheadSpeed, config) {
@@ -28,5 +28,5 @@
   }
 
   window.GameModules = window.GameModules || {};
-  window.GameModules.eventRules = { shuffledGrid, qualifyingSchedule, formationControls };
+  window.GameModules.eventRules = { shuffledGrid, qualifyingGridPositions, formationControls };
 })();
