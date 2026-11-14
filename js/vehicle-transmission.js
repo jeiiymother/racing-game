@@ -60,8 +60,9 @@
       const safeDownshift = nextGearRpm < config.maximumDownshiftRpm
         && nextGearRpm <= config.downshiftTargetMaxRpm;
       const kickdown = throttle >= config.kickdownThrottle
-        && nextGearRpm >= config.kickdownRpm
-        && state.rpm < config.shiftUpRpm - 300;
+        && state.rpm <= config.kickdownRpm
+        && nextGearRpm >= config.kickdownTargetMinRpm
+        && nextGearRpm <= config.kickdownTargetMaxRpm;
       if (safeDownshift && (state.rpm < config.shiftDownRpm || kickdown)) {
         beginShift(state, state.gear - 1, config);
         return 0;

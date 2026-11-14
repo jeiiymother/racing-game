@@ -11,16 +11,19 @@ vm.runInContext(
 );
 const transmission = context.window.GameModules.vehicleTransmission;
 const config = {
-  gearRatios: [2.94, 2.34, 1.86, 1.47, 1.16, 0.916],
+  gearRatios: [3.00, 2.40, 1.92, 1.54, 1.23, 0.98],
   finalDrive: 4.15,
   reverseRatio: 3.10,
-  wheelRadius: 0.33,
+  wheelRadius: 0.355,
+  maximumVehicleSpeed: 78,
   idleRpm: 1500,
   shiftUpRpm: 8000,
   shiftDownRpm: 5200,
   maximumDownshiftRpm: 8150,
   downshiftTargetMaxRpm: 7200,
-  kickdownRpm: 6200,
+  kickdownRpm: 5800,
+  kickdownTargetMinRpm: 6200,
+  kickdownTargetMaxRpm: 7600,
   kickdownThrottle: 0.85,
   shiftLockoutDuration: 0.24,
   shiftDuration: 0.14,
@@ -83,7 +86,7 @@ test('automatic downshift, kickdown, over-rev protection, and reverse are guarde
 });
 
 test('kickdown cannot select a gear that immediately demands an upshift', () => {
-  const state = makeState(2, 5800);
+  const state = makeState(2, 6400);
   transmission.update(state, 1 / 240, state.vf, 1, config);
   assert.equal(state.gear, 2);
 
@@ -94,6 +97,18 @@ test('kickdown cannot select a gear that immediately demands an upshift', () => 
     transmission.update(downshift, 1 / 240, downshift.vf, 0, config);
   }
   assert.equal(downshift.gear, 2);
+});
+
+test('full throttle does not immediately undo an upshift with kickdown', () => {
+  const state = makeState(1, 8100);
+  transmission.update(state, 1 / 240, state.vf, 1, config);
+  assert.equal(state.gear, 2);
+  for (let frame = 0; frame < 360; frame++) {
+    const dt = 1 / 240;
+    const speed = state.vf + frame * 0.002;
+    transmission.update(state, dt, speed, 1, config);
+    assert.equal(state.gear, 2);
+  }
 });
 
 test('a steady speed increase produces sequential upshifts without gear hunting', () => {
@@ -111,4 +126,15 @@ test('a steady speed increase produces sequential upshifts without gear hunting'
     }
   }
   assert.deepEqual(shifts, [2, 3, 4, 5, 6]);
+});
+
+test('close ratios keep a consistent RPM drop and reach redline near the speed cap', () => {
+  for (let gear = 1; gear < config.gearRatios.length; gear++) {
+    const step = config.gearRatios[gear] / config.gearRatios[gear - 1];
+    assert.ok(step > 0.79 && step < 0.81);
+  }
+  const wheelRpmFactor = 60 / (2 * Math.PI * config.wheelRadius);
+  const redlineSpeed = 8500
+    / (wheelRpmFactor * transmission.ratioForGear(6, config));
+  assert.ok(Math.abs(redlineSpeed - config.maximumVehicleSpeed) < 1);
 });

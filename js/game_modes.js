@@ -89,8 +89,8 @@ makeGate(420);
 
 // ===== SIM v6.1 =====
 const D2R=Math.PI/180;
-const MASS=1230, WB=2.8, LF=1.35, LR=1.45, CGH=0.35;
-const YAW_INERTIA=MASS*(4.5*4.5+1.95*1.95)/12;
+const MASS=1260, WB=2.7, LF=1.30, LR=1.40, CGH=0.35;
+const YAW_INERTIA=MASS*(4.633*4.633+2.045*2.045)/12;
 const TRACK_WIDTH=1.62, TIRE_LOAD_SENSITIVITY=0.10, REFERENCE_WHEEL_LOAD=3000;
 const MAXBRK=20000, BRK_BIAS_F=0.62;
 const ROLL=0.013, MAXSPD=78;
@@ -105,10 +105,11 @@ const SUSPENSION_INPUT={
 };
 const suspensionState=suspension.createState();
 const TRANSMISSION_CONFIG={
-  gearRatios:[2.94,2.34,1.86,1.47,1.16,0.916],finalDrive:4.15,reverseRatio:3.10,
-  wheelRadius:0.33,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:5200,
+  gearRatios:[3.00,2.40,1.92,1.54,1.23,0.98],finalDrive:4.15,reverseRatio:3.10,
+  wheelRadius:0.355,idleRpm:1500,shiftUpRpm:8000,shiftDownRpm:5200,
   maximumDownshiftRpm:8150,downshiftTargetMaxRpm:7200,
-  kickdownRpm:6200,kickdownThrottle:0.85,shiftLockoutDuration:0.24,
+  kickdownRpm:5800,kickdownTargetMinRpm:6200,kickdownTargetMaxRpm:7600,
+  kickdownThrottle:0.85,shiftLockoutDuration:0.24,
   shiftDuration:0.14,torqueCutFraction:0.48,torqueRecoveryFraction:0.28
 };
 const STEERING_CONFIG={
@@ -118,9 +119,14 @@ const STEERING_CONFIG={
 const MU_DRY={track:1.75,kerb:1.55,edge:1.05,grass:0.60};
 const MU_WET={track:1.05,kerb:0.90,edge:0.68,grass:0.45};
 const SMAX=360*D2R,MWA=30*D2R,SR=12;
-const WHEEL_R=0.33, IDLE=1500, REDLINE=8500;
+const WHEEL_R=0.355, IDLE=1500, REDLINE=8500;
 const REV_FORCE=4000, REV_MAXV=5.5;
-const TPEAK=560, PPEAK=430000, EB_TQ=70;
+const ENGINE_SPEC={
+  displacementCc:3902,ratedPowerW:600*735.49875,ratedPowerRpm:7000
+};
+const ENGINE_TORQUE_REFERENCE=ENGINE_SPEC.ratedPowerW
+  /(ENGINE_SPEC.ratedPowerRpm*2*Math.PI/60);
+const EB_TQ=70;
 const TCS_FRAC=[1.0,0.94,0.87,0.79,0.71,0.62];
 const TCS_CUT =[0.0,0.20,0.35,0.50,0.65,0.80];
 const ABS_CUT =[0.0,0.13,0.26,0.39,0.52,0.65];
@@ -160,17 +166,16 @@ function applySetup(i){
   document.querySelectorAll('.scard').forEach((el,k)=>el.classList.toggle('sel',k===SU_IDX));
 }
 function torqueN(rpm){
-  if(rpm<1500)return 0.55+0.45*(rpm/1500);
-  if(rpm<4000)return 0.85+0.15*(rpm-1500)/2500;
-  if(rpm<7500)return 1.0;
-  if(rpm<8500)return 1.0-0.25*(rpm-7500)/1000;
-  return 0.75;
+  if(rpm<1500)return 0.65+0.35*(rpm/1500);
+  if(rpm<3500)return 1.0;
+  if(rpm<5500)return 1.0+0.08*(rpm-3500)/2000;
+  if(rpm<6000)return 1.08+0.02*(rpm-5500)/500;
+  if(rpm<7000)return 1.10-0.10*(rpm-6000)/1000;
+  if(rpm<8500)return 1.0-0.30*(rpm-7000)/1500;
+  return 0.70;
 }
 function pN(rpm){
-  if(rpm<1500)return 0.30;
-  if(rpm<5500)return 0.30+0.70*(rpm-1500)/4000;
-  if(rpm<8300)return 1.0;
-  return Math.max(0.8,1.0-0.2*(rpm-8300)/300);
+  return torqueN(rpm)*ENGINE_TORQUE_REFERENCE*rpm*2*Math.PI/60/ENGINE_SPEC.ratedPowerW;
 }
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function muOf(s){
@@ -757,8 +762,8 @@ function driveForce(){
     &&u.vf>=formationTargetSpeed('PLAYER',racePlayerProgress))return 0;
   if(u.rpm>REDLINE+120)return 0;
   const gr=gearRatio();
-  const fT=TPEAK*torqueN(u.rpm)*gr/WHEEL_R*0.9;
-  const fP=PPEAK*pN(u.rpm)*0.9/Math.max(Math.abs(u.vf),3);
+  const fT=ENGINE_TORQUE_REFERENCE*torqueN(u.rpm)*gr/WHEEL_R*0.9;
+  const fP=ENGINE_SPEC.ratedPowerW*pN(u.rpm)*0.9/Math.max(Math.abs(u.vf),3);
   const damageFactor=eventActive&&DAMAGE_ENABLED?Math.max(0.65,1-eventPlayerDamage*0.35):1;
   const F=Math.min(fT,fP)*damageFactor*u._shiftTorqueFactor;
   if(u.gear===0){
