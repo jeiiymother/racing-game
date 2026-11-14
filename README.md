@@ -4,4 +4,4 @@
 ## Hope you can have a fun!  
 ## 希望你能玩得开心!  
 [start!](./game.html)
-[test ver.](./game_modes.html?v=20261114-4)
+[test ver.](./game_modes.html?v=20261114-5)

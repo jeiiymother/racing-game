@@ -19,7 +19,7 @@ const trackCourse=window.GameModules.createTrackCourse(THREE,scene,{
 });
 const {
   TW,KW,RW,WALLD,CAR_HW,CAR_LEN,CP,curve,NW,wp,WP_SP,scA,scMax,Rad,ins,prox,sNear,
-  isOpen,limAt,nearest,trackLength,gndMat,trackMat
+  isOpen,limAt,nearest,trackLength,groundMaterial:gndMat,trackMaterial:trackMat
 }=trackCourse;
 
 // ===== SKID MARKS =====

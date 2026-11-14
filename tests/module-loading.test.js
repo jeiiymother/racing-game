@@ -4,6 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const html = fs.readFileSync(path.join(__dirname, '../game_modes.html'), 'utf8');
+const gameScript = fs.readFileSync(path.join(__dirname, '../js/game_modes.js'), 'utf8');
 
 test('vehicle modules load before the game orchestrator', () => {
   const gameScript = html.indexOf('./js/game_modes.js');
@@ -23,4 +24,9 @@ test('all selectable aero presets are exposed in the menu', () => {
   for (const preset of ['downforce', 'balanced', 'lowDrag']) {
     assert.match(html, new RegExp(`<option value="${preset}"`));
   }
+});
+
+test('track materials are wired to the weather-level update', () => {
+  assert.match(gameScript, /groundMaterial\s*:\s*gndMat/);
+  assert.match(gameScript, /trackMaterial\s*:\s*trackMat/);
 });
