@@ -36,6 +36,15 @@
     });
   }
 
+  function applyToe(steeringAngle, lateralPosition, toeAngle) {
+    return steeringAngle - Math.sign(lateralPosition) * toeAngle;
+  }
+
   window.GameModules = window.GameModules || {};
-  window.GameModules.vehicleControls = { stepSteering, tapSteering, ackermannAngles };
+  window.GameModules.vehicleControls = {
+    stepSteering,
+    tapSteering,
+    ackermannAngles,
+    applyToe
+  };
 })();

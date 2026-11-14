@@ -13,7 +13,8 @@ test('vehicle modules load before the game orchestrator', () => {
     './js/vehicle-physics.js',
     './js/vehicle-engine.js',
     './js/vehicle-transmission.js',
-    './js/vehicle-controls.js'
+    './js/vehicle-controls.js',
+    './js/event-rules.js'
   ]) {
     const moduleScript = html.indexOf(modulePath);
     assert.notEqual(moduleScript, -1, `${modulePath} is loaded`);

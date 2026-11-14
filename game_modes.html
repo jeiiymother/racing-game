@@ -96,8 +96,8 @@
 <h2>⌨ 控制说明</h2>
 <b>油门</b>：按住鼠标右键 + 向下拖拽<br>
 <b>刹车</b>：按住鼠标左键 + 向下拖拽<br>
-<b>转向</b>：A=左 · D=右（轻点 5°；已有转角时再次轻点 +20°；按住 75°/s）<br>
-<b>保持/回正</b>：A+D=保持 · W=回中/冻结 · 松开=90°/s自回正<br>
+<b>转向</b>：A=左 · D=右（轻点 5°；已有转角时再次轻点 +20°；按住 25°/s）<br>
+<b>保持/回正</b>：A+D=保持 · W=回中/冻结 · 松开=20°/s自回正<br>
 <b>TCS</b>：T键 0-5 共6档 · <b>ABS</b>：B键 0-5 共6档（触发时机相同，强度递增）<br>
 <b>关闭辅助</b>：TCS0/ABS0 时不再用电子辅助限制驱动/制动；纵横向轮胎力共享摩擦椭圆，过度使用会失去抓地<br>
 <b>底盘</b>：Q键循环稳定/均衡/灵活方案，改变弹簧、防倾杆及阻尼；菜单可选三种气动配置<br>
@@ -106,7 +106,7 @@
 <b>关卡</b>：干地 / 雨天（μ降低+雨粒子，圈速分开记录）<br>
 <b>赛事</b>：排位 5/10/20/30 分钟；正赛 10/20/30/40/50/60 分钟；到时后过线完赛<br>
 <b>AI/碰撞</b>：业余/专业/大师 AI 会按弯道走线并尝试攻防；车辆损伤可在菜单开关<br>
-<b>轮胎</b>：持续驾驶会磨损轮胎并降低抓地；菜单可关闭车辆损伤，不会关闭实体碰撞<br>
+<b>轮胎</b>：显示胎耗与胎温；胎温随滑移升高并受风冷却，偏离工作温度会降低抓地。菜单可关闭车辆损伤，不会关闭实体碰撞<br>
 <b>操作日志</b>：返回主菜单后可复制本场控制输入与车辆遥测；日志不是录像，不支持回放<br>
 <b>圈速</b>：无限圈；四轮完全出赛道=该圈不计最佳<br>
 <b>变速箱</b>：6速序列式自动 · 转速同步与换挡断扭 · 深踩油门在降挡后转速安全时kickdown<br>
@@ -119,10 +119,11 @@
 <script src="./js/ai-config.js"></script>
 <script src="./js/operation-log.js"></script>
 <script src="./js/track-course.js"></script>
-<script src="./js/vehicle-physics.js?v=20261114-2"></script>
+<script src="./js/event-rules.js?v=20261114-1"></script>
+<script src="./js/vehicle-physics.js?v=20261114-3"></script>
 <script src="./js/vehicle-engine.js?v=20261114-2"></script>
-<script src="./js/vehicle-transmission.js?v=20261114-4"></script>
-<script src="./js/vehicle-controls.js?v=20261114-3"></script>
-<script src="./js/game_modes.js?v=20261114-10"></script>
+<script src="./js/vehicle-transmission.js?v=20261114-5"></script>
+<script src="./js/vehicle-controls.js?v=20261114-4"></script>
+<script src="./js/game_modes.js?v=20261114-12"></script>
 </body>
 </html>

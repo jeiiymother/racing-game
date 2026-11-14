@@ -12,8 +12,8 @@ vm.runInContext(
 const { stepSteering, tapSteering } = context.window.GameModules.vehicleControls;
 const config = {
   maximumAngle: 2 * Math.PI,
-  turnRateDegrees: 75,
-  returnRateDegrees: 90,
+  turnRateDegrees: 25,
+  returnRateDegrees: 20,
   initialTapDegrees: 5,
   repeatTapDegrees: 20,
   tapThresholdDegrees: 2
@@ -22,8 +22,8 @@ const config = {
 test('steering rate and self-centering speed are independently bounded', () => {
   const turned = stepSteering(0, { a: true, d: false, w: false }, 0.5, config);
   const centered = stepSteering(Math.PI / 2, {}, 0.5, config);
-  assert.ok(Math.abs(turned - 75 * Math.PI / 360) < 1e-12);
-  assert.ok(Math.abs(centered - Math.PI / 4) < 1e-12);
+  assert.ok(Math.abs(turned - 25 * Math.PI / 360) < 1e-12);
+  assert.ok(Math.abs(centered - (Math.PI / 2 - 10 * Math.PI / 180)) < 1e-12);
   assert.equal(stepSteering(1, { a: true, d: true }, 0.5, config), 1);
   assert.equal(stepSteering(1, { w: true }, 0.5, config), 1);
 });
@@ -40,6 +40,13 @@ test('front steering follows Ackermann geometry with the inside wheel turning fu
   );
   assert.ok(leftTurnLeft < leftTurnRight);
   assert.ok(leftTurnRight < 0);
+});
+
+test('toe alignment is mirrored across the vehicle centerline', () => {
+  const { applyToe } = context.window.GameModules.vehicleControls;
+  assert.equal(applyToe(0, -0.8, 0.1), 0.1);
+  assert.equal(applyToe(0, 0.8, 0.1), -0.1);
+  assert.equal(applyToe(0.2, -0.8, 0), 0.2);
 });
 
 test('steering clamps to the configured steering lock', () => {

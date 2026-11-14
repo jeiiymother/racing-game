@@ -21,7 +21,7 @@
     return true;
   }
 
-  function update(state, dt, speed, throttle, config) {
+  function update(state, dt, speed, throttle, config, allowAutomaticShift = true) {
     const wheelRpmFactor = 60 / (2 * Math.PI * config.wheelRadius);
     const speedMagnitude = Math.abs(speed);
     const previousThrottle = state.previousThrottle ?? 0;
@@ -49,7 +49,7 @@
       config.idleRpm,
       speedMagnitude * wheelRpmFactor * ratioForGear(state.gear, config)
     );
-    if (state.gear === 0) return 1;
+    if (state.gear === 0 || !allowAutomaticShift) return 1;
     if (state.shiftCooldown > 0) return 1;
 
     if (state.gear < config.gearRatios.length && state.rpm >= config.shiftUpRpm) {

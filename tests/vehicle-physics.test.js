@@ -151,6 +151,35 @@ test('tire load sensitivity makes grip grow sublinearly with normal load', () =>
   assert.equal(tire.computeAxleGrip([0, 0], 1.6, 3000, 0.10), 0);
 });
 
+test('tire grip peaks near the target temperature and falls when cold or overheated', () => {
+  const { temperatureGrip } = physics.tires;
+  assert.ok(temperatureGrip(90) > temperatureGrip(24));
+  assert.ok(temperatureGrip(90) > temperatureGrip(145));
+  assert.equal(temperatureGrip(24), physics.tires.temperatureConfig.minimumGrip);
+});
+
+test('slip work heats each tire while airflow cools a tire without slip', () => {
+  const input = {
+    longitudinalForce: 3000,
+    longitudinalSlipSpeed: 6,
+    lateralForce: 2000,
+    lateralSlipSpeed: 3,
+    speed: 30,
+    ambientTemperatureC: 24
+  };
+  const heated = physics.tires.updateTemperature(80, input, 1);
+  const cooled = physics.tires.updateTemperature(100, {
+    ...input,
+    longitudinalForce: 0,
+    longitudinalSlipSpeed: 0,
+    lateralForce: 0,
+    lateralSlipSpeed: 0
+  }, 1);
+  assert.ok(heated > 80);
+  assert.ok(cooled < 100);
+  assert.ok(cooled >= input.ambientTemperatureC);
+});
+
 test('combined-slip lateral capacity stays inside the friction ellipse', () => {
   const capacity = physics.tires.computeLateralCapacity(10000, 8000);
   assert.ok(Math.abs(capacity - 6000) < 1e-9);

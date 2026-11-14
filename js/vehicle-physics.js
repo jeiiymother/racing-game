@@ -7,6 +7,14 @@
     balanced: Object.freeze({ label: '适中', downforce: 1, drag: 1 }),
     lowDrag: Object.freeze({ label: '低阻力', downforce: 0.78, drag: 0.88 })
   });
+  const TIRE_TEMPERATURE = Object.freeze({
+    optimumC: 90,
+    coldRangeC: 55,
+    hotRangeC: 45,
+    minimumGrip: 0.72,
+    heatCapacityJPerC: 18000,
+    coolingRatePerSecond: 0.012
+  });
 
   function computeAerodynamics(speed, config) {
     const dynamicPressure = 0.5 * config.airDensity * speed * speed;
@@ -153,6 +161,31 @@
     return magicFormula(slipRatio, longitudinalCapacity, longitudinalStiffness, TIRE_CURVE_SHAPE);
   }
 
+  function temperatureGrip(temperatureC) {
+    const difference = temperatureC - TIRE_TEMPERATURE.optimumC;
+    const range = difference < 0
+      ? TIRE_TEMPERATURE.coldRangeC
+      : TIRE_TEMPERATURE.hotRangeC;
+    const falloff = difference < 0 ? 0.24 : 0.30;
+    return Math.max(
+      TIRE_TEMPERATURE.minimumGrip,
+      1.02 - falloff * (difference / range) ** 2
+    );
+  }
+
+  function updateTireTemperature(temperatureC, input, dt) {
+    const slipPower = Math.abs(input.longitudinalForce * input.longitudinalSlipSpeed)
+      + Math.abs(input.lateralForce * input.lateralSlipSpeed);
+    const heatingRate = slipPower / TIRE_TEMPERATURE.heatCapacityJPerC;
+    const coolingRate = TIRE_TEMPERATURE.coolingRatePerSecond
+      * (1 + Math.max(0, input.speed) * 0.025)
+      * (temperatureC - input.ambientTemperatureC);
+    return Math.max(
+      input.ambientTemperatureC,
+      Math.min(180, temperatureC + (heatingRate - coolingRate) * dt)
+    );
+  }
+
   function computeAxleLongitudinalForce(
     slipRatio,
     wheelLoads,
@@ -247,11 +280,14 @@
       step: computeSuspensionStep
     },
     tires: {
+      temperatureConfig: TIRE_TEMPERATURE,
       computeAxleGrip,
       computeAxleLongitudinalForce,
       computeLateralCapacity,
       lateralTireForce,
       longitudinalTireForce,
+      temperatureGrip,
+      updateTemperature: updateTireTemperature,
       stepWheel: stepWheelTire
     }
   };

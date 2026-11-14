@@ -140,6 +140,17 @@ test('kickdown requires a new high-throttle request rather than sustained thrott
   assert.equal(state.gear, 2);
 });
 
+test('formation lap holds first gear until automatic shifting is re-enabled', () => {
+  const state = makeState(1, 1500);
+  const speed = 27.8;
+  for (let frame = 0; frame < 4800; frame++) {
+    transmission.update(state, 1 / 240, speed, 1, config, false);
+    assert.equal(state.gear, 1);
+  }
+  transmission.update(state, 1 / 240, speed, 1, config, true);
+  assert.equal(state.gear, 2);
+});
+
 test('close ratios keep a consistent RPM drop and reach redline near the speed cap', () => {
   for (let gear = 1; gear < config.gearRatios.length; gear++) {
     const step = config.gearRatios[gear] / config.gearRatios[gear - 1];
