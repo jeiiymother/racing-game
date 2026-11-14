@@ -58,6 +58,12 @@ test('race green flag does not count the same start-line crossing as a completed
   assert.match(gameSource, /if\(!count\|\|skipCurrentLine\)return/);
 });
 
+test('manual steering does not disable automatic throttle during the formation lap', () => {
+  assert.match(gameSource, /formationAutoThrottle=formationActive&&ms\.thr===0&&ms\.brk===0/);
+  assert.match(gameSource, /formationAutoSteering=formationActive&&!keys\.a&&!keys\.d&&!keys\.w/);
+  assert.match(gameSource, /effectiveThrottle\(\)\{return formationAutoThrottle\?formationThrottle:ms\.thr;\}/);
+});
+
 test('AI visuals and collision bounds use the same world dimensions as the player', () => {
   assert.match(gameSource, /PLAYER_WORLD_WIDTH=1\.95\*PLAYER_BODY_SCALE/);
   assert.match(gameSource, /PLAYER_WORLD_LENGTH=4\.5\*PLAYER_BODY_SCALE/);

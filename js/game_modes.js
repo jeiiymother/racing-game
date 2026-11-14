@@ -254,7 +254,8 @@ const QUALIFYING_START_INTERVAL=20, FORMATION_SPEED=27.8, FORMATION_GAP=9;
 let raceStartState='none',raceGridOrder=[],racePlayerProgress=0,racePlayerFormationStart=0;
 let raceGreenJustFlagged=false,playerRaceStarted=false;
 let qualifyingStartTimes=new Map(),playerQualifyingStartAt=0,playerQualifyingStarted=false;
-let playerGridLane=-2.5,formationAutoPilot=false,formationThrottle=0,formationBrake=0;
+let playerGridLane=-2.5,formationAutoThrottle=false,formationAutoSteering=false;
+let formationThrottle=0,formationBrake=0;
 const FORMATION_CONTROL_CONFIG={minimumGap:7,timeHeadway:1.5,acceleration:5.5,deceleration:8};
 const TIRE_AMBIENT_DRY=24,TIRE_AMBIENT_WET=16;
 function tireAmbientTemperature(){return WET?TIRE_AMBIENT_WET:TIRE_AMBIENT_DRY;}
@@ -373,16 +374,21 @@ function formationAhead(gridKey,progress){
   return {gap:FORMATION_GAP*2,speed:FORMATION_SPEED};
 }
 function updateFormationAutoPilot(){
-  const manualInput=keys.a||keys.d||keys.w||ms.thr>0||ms.brk>0;
-  formationAutoPilot=eventActive&&eventStage==='race'
-    &&raceStartState==='formation'&&!manualInput;
-  if(!formationAutoPilot)return;
-  const ahead=formationAhead('PLAYER',racePlayerProgress);
-  const control=eventRules.formationControls(
-    Math.max(0,u.vf),FORMATION_SPEED,ahead.gap,ahead.speed,FORMATION_CONTROL_CONFIG
-  );
-  formationThrottle=control.throttle;
-  formationBrake=control.brake;
+  const formationActive=eventActive&&eventStage==='race'&&raceStartState==='formation';
+  formationAutoThrottle=formationActive&&ms.thr===0&&ms.brk===0;
+  formationAutoSteering=formationActive&&!keys.a&&!keys.d&&!keys.w;
+  if(!formationActive)return;
+  if(formationAutoThrottle){
+    const ahead=formationAhead('PLAYER',racePlayerProgress);
+    const control=eventRules.formationControls(
+      Math.max(0,u.vf),FORMATION_SPEED,ahead.gap,ahead.speed,FORMATION_CONTROL_CONFIG
+    );
+    formationThrottle=control.throttle;
+    formationBrake=control.brake;
+  }else{
+    formationThrottle=0;formationBrake=0;
+  }
+  if(!formationAutoSteering)return;
   const lookAhead=clamp(Math.max(0,u.vf)*0.8,10,24);
   const normalized=wrappedProgress(racePlayerProgress+lookAhead)/trackLength;
   const point=curve.getPointAt(normalized);
@@ -395,8 +401,8 @@ function updateFormationAutoPilot(){
   const roadWheelAngle=Math.atan2(2*WB*localRight,distanceSquared);
   u.steer=clamp(roadWheelAngle*SR,-SMAX,SMAX);
 }
-function effectiveThrottle(){return formationAutoPilot?formationThrottle:ms.thr;}
-function effectiveBrake(){return formationAutoPilot?formationBrake:ms.brk;}
+function effectiveThrottle(){return formationAutoThrottle?formationThrottle:ms.thr;}
+function effectiveBrake(){return formationAutoThrottle?formationBrake:ms.brk;}
 function aiRacingLine(progress){
   const index=Math.floor(wrappedProgress(progress)/trackLength*NW)%NW;
   const span=Math.max(1,Math.floor(110/WP_SP));
@@ -659,7 +665,7 @@ function beginEvent(type,fromWeekendQualifying=false,restarting=false){
   raceGridOrder=[];racePlayerProgress=0;racePlayerFormationStart=0;
   raceGreenJustFlagged=false;playerRaceStarted=false;
   qualifyingStartTimes=new Map();playerQualifyingStartAt=0;playerQualifyingStarted=false;
-  formationAutoPilot=false;formationThrottle=0;formationBrake=0;
+  formationAutoThrottle=false;formationAutoSteering=false;formationThrottle=0;formationBrake=0;
   eventDurationSeconds=Number(document.getElementById(eventStage==='qualifying'?'qualDuration':'raceDuration').value);
   eventElapsed=0;eventTimeExpired=false;eventLaps=0;eventPlayerBest=0;
   eventPlayerDamage=0;eventActive=true;eventFinished=false;boardRefreshAt=0;
@@ -1046,7 +1052,7 @@ function step(H,now){
   u.w.forEach((wheel,index)=>{wheel.rotation.x+=u._wheelStates[index].omega*H;});
 }
 function updPlayer(dt,now){
-  if(!formationAutoPilot)u.steer=vehicleControls.stepSteering(u.steer,keys,dt,STEERING_CONFIG);
+  if(!formationAutoSteering)u.steer=vehicleControls.stepSteering(u.steer,keys,dt,STEERING_CONFIG);
   const wheelSteering=vehicleControls.ackermannAngles(
     clamp(u.steer/SR,-MWA,MWA),WB,TRACK_WIDTH
   );
