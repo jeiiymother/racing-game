@@ -9,9 +9,11 @@
   });
   const TIRE_TEMPERATURE = Object.freeze({
     optimumC: 90,
-    coldRangeC: 55,
-    hotRangeC: 45,
-    minimumGrip: 0.72,
+    coldRangeC: 75,
+    hotRangeC: 50,
+    minimumGrip: 0.80,
+    coldFalloff: 0.10,
+    hotFalloff: 0.24,
     heatCapacityJPerC: 18000,
     coolingRatePerSecond: 0.012
   });
@@ -166,7 +168,9 @@
     const range = difference < 0
       ? TIRE_TEMPERATURE.coldRangeC
       : TIRE_TEMPERATURE.hotRangeC;
-    const falloff = difference < 0 ? 0.24 : 0.30;
+    const falloff = difference < 0
+      ? TIRE_TEMPERATURE.coldFalloff
+      : TIRE_TEMPERATURE.hotFalloff;
     return Math.max(
       TIRE_TEMPERATURE.minimumGrip,
       1.02 - falloff * (difference / range) ** 2

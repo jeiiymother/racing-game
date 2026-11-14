@@ -155,7 +155,20 @@ test('tire grip peaks near the target temperature and falls when cold or overhea
   const { temperatureGrip } = physics.tires;
   assert.ok(temperatureGrip(90) > temperatureGrip(24));
   assert.ok(temperatureGrip(90) > temperatureGrip(145));
-  assert.equal(temperatureGrip(24), physics.tires.temperatureConfig.minimumGrip);
+  assert.ok(temperatureGrip(24) > 0.9);
+  assert.ok(temperatureGrip(24) < temperatureGrip(60));
+  assert.equal(temperatureGrip(160), physics.tires.temperatureConfig.minimumGrip);
+});
+
+test('ambient-temperature tires retain realistic dry-track cornering capacity', () => {
+  const ambientGrip = physics.tires.computeAxleGrip(
+    [1260 * 9.81 / 4, 1260 * 9.81 / 4, 1260 * 9.81 / 4, 1260 * 9.81 / 4],
+    1.75 * physics.tires.temperatureGrip(24),
+    3000,
+    0.10
+  );
+  const corneringG = ambientGrip / (1260 * 9.81);
+  assert.ok(corneringG > 1.6 && corneringG < 1.7);
 });
 
 test('slip work heats each tire while airflow cools a tire without slip', () => {
